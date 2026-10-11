@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.chrischall/iaqualink-mcp",
+  "description": "iAqualink pool equipment: status plus confirm-gated pump, heater, light and set-point control.",
+  "repository": {
+    "url": "https://github.com/chrischall/iaqualink-mcp",
+    "source": "github"
+  },
+  "version": "0.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@chrischall/iaqualink-mcp",
+      "version": "0.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "IAQUALINK_EMAIL",
+          "description": "The email address you sign in to the iAqualink app with",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "IAQUALINK_PASSWORD",
+          "description": "Your iAqualink password",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "IAQUALINK_STATUS_CACHE_SECONDS",
+          "description": "Seconds a system's status read is reused before re-polling iAqualink (default 5; 0 disables)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/dxt/main/dist/mcpb-manifest.schema.json",
+  "manifest_version": "0.3",
+  "name": "iaqualink-mcp",
+  "display_name": "iAqualink",
+  "version": "0.0.0",
+  "description": "iAqualink (Zodiac/Jandy/Fluidra) pool equipment for Claude — read temperatures, pumps, heaters and chlorinator state, and switch equipment with confirmation",
+  "author": {
+    "name": "Chris Hall",
+    "email": "chris.c.hall@gmail.com",
+    "url": "https://github.com/chrischall"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chrischall/iaqualink-mcp"
+  },
+  "homepage": "https://github.com/chrischall/iaqualink-mcp",
+  "support": "https://github.com/chrischall/iaqualink-mcp/issues",
+  "license": "MIT",
+  "keywords": ["iaqualink", "pool", "spa", "zodiac", "jandy"],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/bundle.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/bundle.js"],
+      "env": {
+        "IAQUALINK_EMAIL": "${user_config.iaqualink_email}",
+        "IAQUALINK_PASSWORD": "${user_config.iaqualink_password}",
+        "IAQUALINK_STATUS_CACHE_SECONDS": "${user_config.iaqualink_status_cache_seconds}"
+      }
+    }
+  },
+  "user_config": {
+    "iaqualink_email": {
+      "type": "string",
+      "title": "iAqualink email",
+      "description": "The email address you sign in to the iAqualink app with",
+      "required": true
+    },
+    "iaqualink_password": {
+      "type": "string",
+      "title": "iAqualink password",
+      "description": "Your iAqualink password",
+      "required": true,
+      "sensitive": true
+    },
+    "iaqualink_status_cache_seconds": {
+      "type": "string",
+      "title": "Status cache (seconds)",
+      "description": "Seconds a system's status read is reused before re-polling iAqualink (default 5; 0 disables)",
+      "required": false
+    }
+  },
+  "tools": [],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=22.5.0"
+    }
+  }
+}

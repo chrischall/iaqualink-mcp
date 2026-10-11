@@ -1,0 +1,66 @@
+{
+  "name": "@chrischall/iaqualink-mcp",
+  "version": "0.0.0",
+  "mcpName": "io.github.chrischall/iaqualink-mcp",
+  "description": "iAqualink (Zodiac/Fluidra) pool equipment MCP server for Claude — status plus confirm-gated pump, heater, light, aux and set-point control. Developed and maintained by AI (Claude Code).",
+  "author": "Claude Code (AI) <https://www.anthropic.com/claude>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chrischall/iaqualink-mcp.git"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "ai",
+    "iaqualink",
+    "zodiac",
+    "jandy",
+    "fluidra",
+    "pool",
+    "spa",
+    "home-automation"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "iaqualink-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    ".claude-plugin",
+    "skills",
+    ".mcp.json",
+    "server.json",
+    "mint.yaml"
+  ],
+  "scripts": {
+    "build": "tsc && npm run bundle",
+    "bundle": "esbuild src/index.ts --bundle --alias:zod/v4=./node_modules/zod/v4/index.cjs --platform=node --format=esm --external:dotenv --outfile=dist/bundle.js",
+    "dev": "node dist/index.js",
+    "test": "npm run typecheck && vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "npm run typecheck && vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@chrischall/mcp-utils": "^3.0.2",
+    "@modelcontextprotocol/server": "^2.3.0",
+    "dotenv": "^18.0.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.3.0",
+    "@types/node": "^26.0.0",
+    "@vitest/coverage-v8": "^5.0.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
