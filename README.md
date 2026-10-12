@@ -37,6 +37,7 @@ own discretion.
 | `iaqualink_edit_schedule` | Change an RS panel program's start / stop / run days via WebTouch | write, not destructive |
 | `iaqualink_delete_schedule` | Delete an RS panel program via WebTouch — **no undo** | write, **destructive** |
 | `iaqualink_set_schedule` | Set / re-time / disable an eXO timer (start–stop, rpm on variable-speed pumps) — **eXO only, unverified live** | write, not destructive |
+| `iaqualink_check_panel` | Is an RS system online, and what is its panel showing (screen, open dialog, Edit mode with unsaved changes)? Run it when the app and these tools disagree | read |
 | `iaqualink_list_onetouch` | RS panel OneTouch scenes (Spa Mode, All OFF, …) and their state, via WebTouch | read |
 | `iaqualink_set_onetouch` | Turn a OneTouch scene on/off via WebTouch — **toggle not exercised live yet** | write, not destructive |
 

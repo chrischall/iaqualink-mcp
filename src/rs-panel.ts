@@ -22,6 +22,7 @@ import { McpToolError, messageOf } from '@chrischall/mcp-utils';
 import type { PanelState, WebTouchSession } from './webtouch.js';
 
 export const SCREEN = { home: '1', menu: '15', schedule: '40', keypad: '41', picker: '56', onetouch: '77' } as const;
+const SCREEN_NAMES: Record<string, string> = { 1: 'Home', 15: 'Menu', 40: 'Schedule', 41: 'Time keypad', 56: 'Device picker', 77: 'OneTouch' };
 const CMD = {
   home: 1,
   menu: 2,
@@ -110,6 +111,30 @@ class Abort extends Error {}
 const UNSAVED = 'UNSAVED changes (open WebTouch or the panel and Save or discard them)';
 /** The panel's answers to leaving, or pressing anything but Save, while in schedule Edit mode. */
 const EDIT_DIALOG = /must be saved before exiting|press save to store program changes/i;
+
+/** What the panel is showing, as the panel check reports it. */
+export interface PanelCheck {
+  /** ready: no dialog, not in schedule Edit · edit_unsaved: schedule Edit with unsaved changes · dialog: another dialog is open. */
+  state: 'ready' | 'edit_unsaved' | 'dialog';
+  /** null when the panel answered with only a dialog. */
+  screen: string | null;
+  screenName: string | null;
+  dialog: { message: string; buttons: string[] } | null;
+  /** null when the screen is unknown and no dialog says. */
+  editMode: boolean | null;
+}
+
+export function describePanel(st: PanelState): PanelCheck {
+  const editDialog = st.dialog !== null && EDIT_DIALOG.test(st.dialog.message);
+  const editMode = editDialog || (st.screen === SCREEN.schedule && editOn(st)) ? true : st.screen === null ? null : false;
+  return {
+    state: editMode ? 'edit_unsaved' : st.dialog ? 'dialog' : 'ready',
+    screen: st.screen,
+    screenName: st.screen === null ? null : (SCREEN_NAMES[st.screen] ?? `screen ${st.screen}`),
+    dialog: st.dialog && { message: st.dialog.message, buttons: st.dialog.buttons },
+    editMode,
+  };
+}
 
 /** One panel operation: guarded presses, a dirty flag, and clean-up on abort. */
 export class PanelOp {

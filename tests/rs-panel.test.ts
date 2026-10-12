@@ -3,6 +3,7 @@ import { IaqualinkClient } from '../src/client.js';
 import {
   PanelOp,
   addSchedule,
+  describePanel,
   deleteSchedule,
   editSchedule,
   from12,
@@ -55,6 +56,17 @@ describe('time and row helpers', () => {
     const b = { circuit: 'B', display: { start: '1:00 PM', stop: '2:00 PM' }, days: 'All' };
     expect(sameList([a, b], [b, a])).toBe(true);
     expect(sameList([a], [b])).toBe(false);
+  });
+});
+
+describe('describePanel', () => {
+  it('leaves Edit mode unknown when only an unrelated dialog is showing, and names unknown screens by id', () => {
+    const st = emptyState();
+    st.dialog = { type: '0', message: 'Service mode', buttons: ['Ok'] };
+    expect(describePanel(st)).toMatchObject({ state: 'dialog', screen: null, screenName: null, editMode: null });
+    st.dialog = null;
+    st.screen = '99';
+    expect(describePanel(st)).toMatchObject({ state: 'ready', screenName: 'screen 99', editMode: false });
   });
 });
 

@@ -109,6 +109,10 @@
       "description": "Set, re-time or disable an eXO salt-chlorinator timer (start/stop, rpm for variable-speed pumps), with confirmation; eXO only"
     },
     {
+      "name": "iaqualink_check_panel",
+      "description": "Check whether an AquaLink RS system is online and what its panel is showing (screen, open dialog, schedule Edit mode with unsaved changes), via WebTouch — presses nothing beyond the page's start-up press"
+    },
+    {
       "name": "iaqualink_list_onetouch",
       "description": "List an AquaLink RS panel's OneTouch scenes (e.g. Spa Mode, All OFF) and whether each is on, via WebTouch"
     },

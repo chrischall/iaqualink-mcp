@@ -18,6 +18,7 @@ async function served() {
 
 const EXPECTED = [
   'iaqualink_add_schedule',
+  'iaqualink_check_panel',
   'iaqualink_delete_schedule',
   'iaqualink_edit_schedule',
   'iaqualink_get_status',
@@ -77,6 +78,7 @@ describe('tool annotations', () => {
   it('holds the read and destructive sets at their decided sizes', async () => {
     const tools = await served();
     expect(tools.filter((t) => t.annotations?.readOnlyHint === true).map((t) => t.name).sort()).toEqual([
+      'iaqualink_check_panel',
       'iaqualink_get_status',
       'iaqualink_healthcheck',
       'iaqualink_list_onetouch',

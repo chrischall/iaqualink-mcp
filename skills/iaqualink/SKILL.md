@@ -88,6 +88,11 @@ Notes:
   left in (e.g. "in Edit mode with UNSAVED changes") — relay it verbatim.
 - eXO timers: `iaqualink_set_schedule`; a chlorinator timer must sit inside
   its pump timer's window, and `enabled: false` clears a timer.
+- `iaqualink_check_panel` — first stop when a schedule/OneTouch tool reports
+  a dialog or a timeout, or the app shows the system offline: reports the
+  cloud online flag and what the panel shows. `edit_unsaved` means the panel
+  is in schedule Edit mode with unsaved changes; the owner must Save or
+  discard them at the panel or in WebTouch — do not retry the write.
 - `iaqualink_list_onetouch` / `iaqualink_set_onetouch` — the panel's
   one-button scenes ("Spa Mode", "All OFF"), via WebTouch. The button is a
   toggle; it is pressed only when the scene is not already in the requested
