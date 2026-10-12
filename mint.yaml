@@ -1,0 +1,68 @@
+version: 1
+name: iAqualink
+slug: iaqualink
+summary: >-
+  iAqualink (Zodiac / Jandy / Fluidra) pool and spa equipment — temperatures,
+  pumps, heaters, lights, aux circuits and salt chlorinator status, plus
+  confirmation-gated control. Each user signs in with their own iAqualink
+  email and password.
+
+identity:
+  # One child per caller: the child signs in to iAqualink AS the caller, so two
+  # people sharing one child would share one signed-in session and one pool.
+  # Required for `auth` below.
+  perUserChild: true
+
+auth:
+  # Collected once on the connector's authorize page. There is no `flow`: as
+  # far as the reference client (iaqualink-py 0.7.0) shows, Zodiac's login is a
+  # single email/password POST that returns tokens outright — no MFA, device
+  # challenge or second exchange. If Zodiac ever adds MFA, this needs an
+  # `auth.flow` (sign-in → code) and matching tools before it can host again.
+  fields:
+    - name: IAQUALINK_EMAIL
+      label: iAqualink email
+      type: text
+      required: true
+      help: The email address you sign in to the iAqualink app with.
+    - name: IAQUALINK_PASSWORD
+      label: iAqualink password
+      type: password
+      required: true
+      help: >-
+        Your iAqualink password. Stored as a per-user secret and never shown
+        again. A rejected password is never retried automatically, so a typo
+        cannot lock the account — reconnect with the right one instead.
+
+env:
+  # IAQUALINK_EMAIL / IAQUALINK_PASSWORD are deliberately NOT here: they are
+  # collected per user above, and an auth field may not name a host-set
+  # variable. Set them in .env only for a local, single-user install.
+  - name: IAQUALINK_STATUS_CACHE_SECONDS
+    required: false
+    help: >-
+      Seconds a system's status read is reused before re-polling iAqualink
+      (default 5; 0 disables). Writes always re-read fresh.
+  - name: MCP_CONFIRM_MODE
+    required: false
+    help: >-
+      ask-user (default) / auto / refuse — whether the model must get your
+      approval in chat before using a write's confirmToken.
+  - name: MCP_CONFIRM_TTL_SECONDS
+    required: false
+    help: How long a write's confirmToken stays valid (default 600).
+  - name: MCP_CONFIRM_ELICITATION
+    required: false
+    help: Set to off to skip the confirmation prompt even on clients that declare elicitation support.
+
+# No `state` block: nothing needs to persist. The session tokens and the
+# status cache live in memory and are rebuilt by one sign-in after a cold
+# start, so a scale-to-zero restart costs a single login, not a re-enrolment.
+
+egress:
+  # Exactly the hosts the server fetches (src/client.ts):
+  allow:
+    # login, token refresh, and the eXO device shadow (/devices/v1/<serial>/shadow)
+    - prod.zodiac-io.com
+    # the system list (devices.json) and the iAqua command channel (v2/mobile/session.json)
+    - r-api.iaqualink.net

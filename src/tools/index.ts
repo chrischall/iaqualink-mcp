@@ -1,0 +1,7 @@
+import type { McpServer } from '@modelcontextprotocol/server';
+import { registerReadTools } from './read.js';
+import { registerControlTools } from './control.js';
+import type { Deps } from './deps.js';
+
+/** Every registrar, in roster order. index.ts and the tests both use this list. */
+export const registrars: Array<(server: McpServer, deps: Deps) => void> = [registerReadTools, registerControlTools];

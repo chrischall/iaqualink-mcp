@@ -17,13 +17,21 @@
   "homepage": "https://github.com/chrischall/iaqualink-mcp",
   "support": "https://github.com/chrischall/iaqualink-mcp/issues",
   "license": "MIT",
-  "keywords": ["iaqualink", "pool", "spa", "zodiac", "jandy"],
+  "keywords": [
+    "iaqualink",
+    "pool",
+    "spa",
+    "zodiac",
+    "jandy"
+  ],
   "server": {
     "type": "node",
     "entry_point": "dist/bundle.js",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/dist/bundle.js"],
+      "args": [
+        "${__dirname}/dist/bundle.js"
+      ],
       "env": {
         "IAQUALINK_EMAIL": "${user_config.iaqualink_email}",
         "IAQUALINK_PASSWORD": "${user_config.iaqualink_password}",
@@ -35,14 +43,14 @@
     "iaqualink_email": {
       "type": "string",
       "title": "iAqualink email",
-      "description": "The email address you sign in to the iAqualink app with",
-      "required": true
+      "description": "The email address you sign in to the iAqualink app with (needed by every tool; the server starts without it and reports it missing on first use)",
+      "required": false
     },
     "iaqualink_password": {
       "type": "string",
       "title": "iAqualink password",
-      "description": "Your iAqualink password",
-      "required": true,
+      "description": "Your iAqualink password (needed by every tool; the server starts without it and reports it missing on first use)",
+      "required": false,
       "sensitive": true
     },
     "iaqualink_status_cache_seconds": {
@@ -52,9 +60,46 @@
       "required": false
     }
   },
-  "tools": [],
+  "tools": [
+    {
+      "name": "iaqualink_list_systems",
+      "description": "List the pool/spa systems on the iAqualink account and their serial numbers"
+    },
+    {
+      "name": "iaqualink_get_status",
+      "description": "Pool, spa and air temperatures, set points, pumps, heaters, aux circuits, lights and chlorinator state"
+    },
+    {
+      "name": "iaqualink_healthcheck",
+      "description": "Verify the iAqualink sign-in: whether a credential resolved and whether iAqualink accepts it"
+    },
+    {
+      "name": "iaqualink_set_equipment",
+      "description": "Turn a pump, heater or eXO chlorinator function on or off (confirm-gated)"
+    },
+    {
+      "name": "iaqualink_set_aux",
+      "description": "Turn an aux circuit or light on or off (confirm-gated)"
+    },
+    {
+      "name": "iaqualink_set_light",
+      "description": "Set a light’s brightness or color effect (confirm-gated)"
+    },
+    {
+      "name": "iaqualink_set_temperature",
+      "description": "Set the pool and/or spa heater set point (confirm-gated)"
+    },
+    {
+      "name": "iaqualink_set_chlorinator",
+      "description": "Set an eXO salt chlorinator’s output percentage (confirm-gated)"
+    }
+  ],
   "compatibility": {
-    "platforms": ["darwin", "win32", "linux"],
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
     "runtimes": {
       "node": ">=22.5.0"
     }
