@@ -193,7 +193,7 @@ describe('iaqualink_set_schedule (eXO)', () => {
     const server = new FakeIaqualink();
     server.shadow.state.reported.schedules.sch5 = { id: 'sch_5', timer: { start: '00:00', end: '00:00' }, enabled: 0 };
     const { fail } = await setup({ server });
-    expect(await fail('iaqualink_set_schedule', { serial: 'IAQ123', schedule: '1', start: '09:00', stop: '10:00' })).toMatch(/only supported on eXO/);
+    expect(await fail('iaqualink_set_schedule', { serial: 'IAQ123', schedule: '1', start: '09:00', stop: '10:00' })).toMatch(/only supported on eXO.*iaqualink_add_schedule, iaqualink_edit_schedule and iaqualink_delete_schedule/s);
     expect(await fail('iaqualink_set_schedule', { serial: 'EXO456', schedule: 'nope', start: '09:00', stop: '10:00' })).toMatch(/sch3 \(Filter Pump 1\)/);
     expect(await fail('iaqualink_set_schedule', { serial: 'EXO456', schedule: 'sch3', start: '09:00', stop: '10:00', rpm: 1500 })).toMatch(/not a variable-speed/);
     expect(await fail('iaqualink_set_schedule', { serial: 'EXO456', schedule: 'sch5', start: '09:00', stop: '10:00', rpm: 1500 })).toMatch(/sch5 is not a variable-speed/);

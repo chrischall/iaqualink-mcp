@@ -18,11 +18,13 @@ async function served() {
 
 const EXPECTED = [
   'iaqualink_add_schedule',
+  'iaqualink_check_panel',
   'iaqualink_delete_schedule',
   'iaqualink_edit_schedule',
   'iaqualink_get_status',
   'iaqualink_healthcheck',
   'iaqualink_list_onetouch',
+  'iaqualink_list_pump_speeds',
   'iaqualink_list_schedules',
   'iaqualink_list_systems',
   'iaqualink_set_aux',
@@ -30,6 +32,8 @@ const EXPECTED = [
   'iaqualink_set_equipment',
   'iaqualink_set_light',
   'iaqualink_set_onetouch',
+  'iaqualink_set_pump_speed',
+  'iaqualink_set_pump_speed_rpm',
   'iaqualink_set_schedule',
   'iaqualink_set_temperature',
 ];
@@ -77,9 +81,11 @@ describe('tool annotations', () => {
   it('holds the read and destructive sets at their decided sizes', async () => {
     const tools = await served();
     expect(tools.filter((t) => t.annotations?.readOnlyHint === true).map((t) => t.name).sort()).toEqual([
+      'iaqualink_check_panel',
       'iaqualink_get_status',
       'iaqualink_healthcheck',
       'iaqualink_list_onetouch',
+      'iaqualink_list_pump_speeds',
       'iaqualink_list_schedules',
       'iaqualink_list_systems',
     ]);

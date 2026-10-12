@@ -200,7 +200,7 @@ export function registerScheduleTools(server: McpServer, deps: Deps): void {
       const raw = await client.readRawStatus(serial, { fresh: confirmToken !== undefined });
       if (raw.kind !== 'exo') {
         throw new McpToolError('Schedule changes are only supported on eXO systems.', {
-          hint: 'iAqua iQ20 schedule writes are not built, and an AquaLink RS panel’s own programs are not reachable through the cloud API.',
+          hint: 'On an AquaLink RS panel, change its programs with iaqualink_add_schedule, iaqualink_edit_schedule and iaqualink_delete_schedule (via WebTouch). iAqua iQ20 schedule writes are not built.',
         });
       }
       const list = parseExoSchedules(raw.shadow)?.schedules ?? [];

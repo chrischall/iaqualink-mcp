@@ -14,6 +14,11 @@
  *  - in Edit mode a row press answers "Press SAVE to store program changes.";
  *  - the start-up press of a new session, in Edit mode, only raises "Program
  *    changes must be saved…" (no screen); with a dialog open it closes it.
+ *  - Other Devices (24) → screen 54; "VSP1 Spd" (ADJ) → screen 30, eight named
+ *    speeds. Pressing a speed makes it the active (running) speed at once and
+ *    pre-fills the keypad (25 "0||rpm"); pressing the active one sends nothing.
+ *    Keypad Enter (128 + text) stores the RPM for the active speed, echoes its
+ *    button, and returns to screen 54.
  */
 
 export interface PanelSchedule {
@@ -38,6 +43,18 @@ export const WT_DEVICES = [
 ];
 
 export const WT_ONETOUCH = ['All OFF', 'Spa Mode', 'Clean Mode', 'OneTouch 4', 'OneTouch 5', 'OneTouch 6'];
+
+/** Home → Other Devices (24) → screen 54, as recorded live 2026-10-12. "VSP1 Spd" shows ADJ, not ON/OFF. */
+export const WT_OTHER_DEVICES = [
+  'Filter Pump', 'Spa', 'VSP1 Spd', 'Pool Heat', 'Spa Heat', 'Cleaner', 'Air Blower',
+  'Pool Light', 'Not Used', 'Not Used', 'Extra Aux', 'Spa Mode', 'Clean Mode', 'All OFF',
+];
+
+/** Screen 30 "VSP Adjust / Set Speed": the eight named speeds, button idx 0..7 (live 2026-10-12). */
+export const WT_VSP = [
+  { label: 'Pool', rpm: 2850 }, { label: 'Spa', rpm: 3450 }, { label: 'Cleaner', rpm: 3450 }, { label: 'Speed4', rpm: 2750 },
+  { label: 'Pool Heat', rpm: 2750 }, { label: 'Spa Heat', rpm: 3450 }, { label: 'Speed7', rpm: 2750 }, { label: 'In Floor', rpm: 2750 },
+];
 
 /** Run-day buttons, dynamic idx 6..15 = commands 23..32. */
 const DAYS = ['All', 'M', 'Tu', 'W', 'Th', 'F', 'Sa', 'Su', 'Wkdays', 'Wkends'];
@@ -73,6 +90,11 @@ export class FakeWebTouch {
   pickerPage = 0;
   pickerSelected: number | null = null;
   onetouch: boolean[] = WT_ONETOUCH.map(() => false);
+  devices: string[] = [...WT_OTHER_DEVICES];
+  vsp = structuredClone(WT_VSP);
+  vspActive = 0;
+  /** Delay (ms) before the last speed button is painted — live, In Floor once arrived 8 s late. */
+  vspLateMs = 0;
   /** Commands the panel silently ignores (to test timeouts). */
   ignore = new Set<string>();
   /** When true, the picker echoes no row selection (code 40) — the capture did not record one. */
@@ -191,6 +213,18 @@ export class FakeWebTouch {
         this.emit('26', '0||0||Select Device');
         for (let n = 1; n <= PAGE; n++) this.emit('26', `0||${n}||${WT_DEVICES[this.pickerPage * PAGE + n - 1] ?? ''}`);
         break;
+      case 54:
+        this.devices.forEach((l, i) => this.emit('24', `${i}||${i === 0 ? 1 : 0}||1||${l}||${/ Spd$/.test(l) ? 'ADJ' : i === 0 ? 'ON ' : 'OFF'}`));
+        for (let i = this.devices.length; i <= 16; i++) this.emit('24', `${i}||255||0||||`);
+        break;
+      case 30: {
+        const paint = (i: number) => this.emit('24', `${i}||${i === this.vspActive ? 1 : 0}||0||${this.vsp[i]!.label}||${this.vsp[i]!.rpm}`);
+        for (let i = 0; i < this.vsp.length - 1; i++) paint(i);
+        const last = this.vsp.length - 1;
+        if (this.vspLateMs > 0) setTimeout(() => this.screen === 30 && paint(last), this.vspLateMs);
+        else paint(last);
+        break;
+      }
       case 77:
         WT_ONETOUCH.forEach((l, i) => this.emit('24', `${i}||${this.onetouch[i] ? 1 : 0}||1||${l}||${this.onetouch[i] ? 'ON' : 'OFF'}`));
         break;
@@ -254,8 +288,24 @@ export class FakeWebTouch {
     if (cmd === 1) return this.leave(1);
     if (cmd === 2) return this.leave(15);
     if (cmd === 3) return this.leave(77);
-    if (cmd === 5) return this.leave(({ 15: 1, 40: 15, 56: 40, 77: 1 } as Record<number, number>)[this.screen] ?? 1);
+    if (cmd === 5) return this.leave(({ 15: 1, 40: 15, 56: 40, 77: 1, 30: 54, 54: 1 } as Record<number, number>)[this.screen] ?? 1);
     switch (this.screen) {
+      case 1:
+        if (cmd === 24) this.leave(54);
+        return;
+      case 54:
+        if (/ Spd$/.test(this.devices[cmd - 17] ?? '')) this.leave(30);
+        return;
+      case 30: {
+        const i = cmd - 17;
+        if (i < 0 || i >= this.vsp.length || i === this.vspActive) return;
+        const was = this.vspActive;
+        this.vspActive = i;
+        if (was >= 0) this.emit('24', `${was}||0||0||${this.vsp[was]!.label}||${this.vsp[was]!.rpm}`);
+        this.emit('24', `${i}||1||0||${this.vsp[i]!.label}||${this.vsp[i]!.rpm}`);
+        this.emit('25', `0||${this.vsp[i]!.rpm}`);
+        return;
+      }
       case 15:
         if (cmd === 17) this.leave(40);
         return;
@@ -351,6 +401,12 @@ export class FakeWebTouch {
   }
 
   private enter(text: string): void {
+    if (this.screen === 30) {
+      const a = this.vsp[this.vspActive]!;
+      a.rpm = Number(text);
+      this.emit('24', `${this.vspActive}||1||0||${a.label}||${a.rpm}`);
+      return this.go(54);
+    }
     if (this.screen !== 41) return;
     const [h, m] = text.split(':');
     const value = `${Number(h)}:${m} ${this.keypad!.mer}`;

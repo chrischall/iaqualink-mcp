@@ -3,6 +3,10 @@ import { IaqualinkClient } from '../src/client.js';
 import {
   PanelOp,
   addSchedule,
+  describePanel,
+  readPumpSpeeds,
+  selectPumpSpeed,
+  setPumpSpeedRpm,
   deleteSchedule,
   editSchedule,
   from12,
@@ -55,6 +59,17 @@ describe('time and row helpers', () => {
     const b = { circuit: 'B', display: { start: '1:00 PM', stop: '2:00 PM' }, days: 'All' };
     expect(sameList([a, b], [b, a])).toBe(true);
     expect(sameList([a], [b])).toBe(false);
+  });
+});
+
+describe('describePanel', () => {
+  it('leaves Edit mode unknown when only an unrelated dialog is showing, and names unknown screens by id', () => {
+    const st = emptyState();
+    st.dialog = { type: '0', message: 'Service mode', buttons: ['Ok'] };
+    expect(describePanel(st)).toMatchObject({ state: 'dialog', screen: null, screenName: null, editMode: null });
+    st.dialog = null;
+    st.screen = '99';
+    expect(describePanel(st)).toMatchObject({ state: 'ready', screenName: 'screen 99', editMode: false });
   });
 });
 
@@ -399,5 +414,95 @@ describe('OneTouch (screen 77)', () => {
   it('aborts for a scene the screen does not show', async () => {
     const p = panel();
     await expect(p.use((s) => setOneTouch(s, 9, true))).rejects.toThrow(/no scene 9/);
+  });
+});
+
+describe('pump speeds (screen 30, live 2026-10-12)', () => {
+  it('reads the named speeds via Other Devices(24) → "VSP1 Spd" ADJ(19), then Back(5) and Home(1)', async () => {
+    const p = panel();
+    const r = await p.use(readPumpSpeeds);
+    expect(r.pump).toBe('VSP1 Spd');
+    expect(r.speeds).toHaveLength(8);
+    expect(r.speeds[0]).toEqual({ index: 0, label: 'Pool', rpm: 2850, active: true });
+    expect(r.speeds[7]).toEqual({ index: 7, label: 'In Floor', rpm: 2750, active: false });
+    expect(p.pressed()).toEqual(['24', '19', '5', '1']);
+    expect(p.wt.screen).toBe(1);
+  });
+
+  it('waits for a speed button that arrives late', async () => {
+    const p = panel();
+    p.wt.vspLateMs = 60;
+    expect((await p.use(readPumpSpeeds)).speeds).toHaveLength(8);
+  });
+
+  it('refuses a panel with no pump adjust entry, and goes Home', async () => {
+    const p = panel();
+    p.wt.devices = p.wt.devices.filter((d) => d !== 'VSP1 Spd');
+    await expect(p.use(readPumpSpeeds)).rejects.toThrow(/no variable-speed pump.*panel left on screen 1/);
+  });
+
+  it('switches the running speed by pressing it (17 + idx), presses nothing when it already runs', async () => {
+    const p = panel();
+    const r = await p.use((s) => selectPumpSpeed(s, 1, 'Spa'));
+    expect(p.wt.vspActive).toBe(1);
+    expect(r.speeds.find((x) => x.active)!.label).toBe('Spa');
+    expect(p.pressed().slice(0, 5)).toEqual(['24', '19', '18', '5', '1']);
+    p.wt.commands.length = 0;
+    await p.use((s) => selectPumpSpeed(s, 1, 'Spa'));
+    expect(p.pressed()).toEqual(['24', '19', '5', '1', '24', '19', '5', '1']);
+  });
+
+  it('refuses when the planned speed is not at that button any more', async () => {
+    const p = panel();
+    await expect(p.use((s) => selectPumpSpeed(s, 1, 'Cleaner'))).rejects.toThrow(/button 2 is "Spa", not "Cleaner"/);
+    expect(p.wt.vspActive).toBe(0);
+  });
+
+  it('sets the active speed\'s RPM with the keypad (128 on the STB actionID), no switch needed', async () => {
+    const p = panel();
+    const r = await p.use((s) => setPumpSpeedRpm(s, 0, 'Pool', 2600));
+    expect(p.wt.vsp[0]!.rpm).toBe(2600);
+    expect(p.wt.commands.find((c) => c.command === '128')).toEqual({ actionID: 'STB-1', command: '128', text: '2600' });
+    expect(p.pressed().slice(0, 4)).toEqual(['24', '19', '128:2600', '1']);
+    expect(r.speeds[0]).toMatchObject({ label: 'Pool', rpm: 2600, active: true });
+  });
+
+  it('sets another speed\'s RPM, then switches the pump back to the speed that was running', async () => {
+    const p = panel();
+    const r = await p.use((s) => setPumpSpeedRpm(s, 3, 'Speed4', 2400));
+    expect(p.pressed().slice(0, 7)).toEqual(['24', '19', '20', '128:2400', '19', '17', '5']);
+    expect(p.wt.vsp[3]!.rpm).toBe(2400);
+    expect(p.wt.vspActive).toBe(0);
+    expect(r.speeds.find((x) => x.active)!.label).toBe('Pool');
+  });
+
+  it('says the pump may be left on the edited speed when a step after the switch fails', async () => {
+    const p = panel();
+    p.wt.ignore.add('128');
+    await expect(p.use((s) => setPumpSpeedRpm(s, 3, 'Speed4', 2400))).rejects.toThrow(/may still be running at "Speed4".*switch back to "Pool"/s);
+    expect(p.wt.vsp[3]!.rpm).toBe(2750);
+  });
+
+  it('reads a speed with no RPM text as null, and refuses a button that is not there', async () => {
+    const p = panel();
+    (p.wt.vsp[7] as { rpm: unknown }).rpm = '----';
+    expect((await p.use(readPumpSpeeds)).speeds[7]!.rpm).toBeNull();
+    await expect(p.use((s) => selectPumpSpeed(s, 9, 'Turbo'))).rejects.toThrow(/speed button 10 is "", not "Turbo"/);
+  });
+
+  it('fails plainly when setting the running speed\'s RPM does not take', async () => {
+    const p = panel();
+    p.wt.ignore.add('128');
+    const err = await p.use((s) => setPumpSpeedRpm(s, 0, 'Pool', 2600)).catch((e: Error) => e);
+    expect(String(err)).toMatch(/store the speed/);
+    expect(String(err)).not.toMatch(/may still be running/);
+  });
+
+  it('sets an RPM when no speed is marked running, without switching back', async () => {
+    const p = panel();
+    p.wt.vspActive = -1;
+    await p.use((s) => setPumpSpeedRpm(s, 3, 'Speed4', 2400));
+    expect(p.wt.vsp[3]!.rpm).toBe(2400);
+    expect(p.wt.vspActive).toBe(3);
   });
 });
