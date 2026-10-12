@@ -387,3 +387,155 @@ describe('IaqualinkClient — remaining paths', () => {
     await expect(client.listSystems()).rejects.toBeInstanceOf(UnreachableError);
   });
 });
+
+describe('IaqualinkClient — alternate session endpoints (schedule probe)', () => {
+  it('lists the candidates in the documented order, current endpoint first', async () => {
+    const { SESSION_ENDPOINTS, IAQUA_SESSION_URL, P_API_SESSION_URL, PRM_SESSION_URL } = await import('../src/client.js');
+    expect(SESSION_ENDPOINTS.map((e) => [e.id, e.url, e.auth])).toEqual([
+      ['r-api-v2', IAQUA_SESSION_URL, 'bearer'],
+      ['p-api-v2', P_API_SESSION_URL, 'bearer'],
+      ['p-api-v2-bare', P_API_SESSION_URL, 'bare'],
+      ['prm-v1', PRM_SESSION_URL, 'bare'],
+    ]);
+  });
+
+  it('sends the Bearer or bare id token per endpoint, with the api_key header', async () => {
+    const { SESSION_ENDPOINTS } = await import('../src/client.js');
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    for (const e of SESSION_ENDPOINTS) await client.iaquaCommand('IAQ123', 'get_home', {}, e);
+    const sent = server.log.filter((r) => r.url.pathname.endsWith('/session.json'));
+    expect(sent.map((r) => [r.url.host, r.url.pathname, r.headers.authorization, r.headers.api_key])).toEqual([
+      ['r-api.iaqualink.net', '/v2/mobile/session.json', 'Bearer id-tok-1', API_KEY],
+      ['p-api.iaqualink.net', '/v2/mobile/session.json', 'Bearer id-tok-1', API_KEY],
+      ['p-api.iaqualink.net', '/v2/mobile/session.json', 'id-tok-1', API_KEY],
+      ['prm.iaqualink.net', '/v1/mobile/session.json', 'id-tok-1', API_KEY],
+    ]);
+  });
+
+  it('never re-authenticates on a 401 from an alternate endpoint (reports it instead)', async () => {
+    const { SESSION_ENDPOINTS } = await import('../src/client.js');
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    await client.listSystems();
+    server.failNext(401, { match: /p-api/ });
+    const err = await client.iaquaCommand('IAQ123', 'get_home', {}, SESSION_ENDPOINTS[1]).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(McpToolError);
+    expect((err as McpToolError).status).toBe(401);
+    expect((err as McpToolError).kind).toBe('http');
+    expect(server.count('/users/v1/')).toBe(1);
+  });
+
+  it('scrubs the password and every session token out of text it reports', async () => {
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    expect(client.scrubText('before sign-in')).toBe('before sign-in');
+    await client.listSystems();
+    const text = `sess-1 auth-tok id-tok-1 refresh-tok ${server.password} user-123 ok`;
+    const out = client.scrubText(text);
+    for (const secret of ['sess-1', 'auth-tok', 'id-tok-1', 'refresh-tok', server.password]) expect(out).not.toContain(secret);
+    expect(out).toMatch(/ok$/);
+  });
+});
+
+describe('IaqualinkClient — WebTouch bootstrap (ejc3/iaqualink-webtouch@42c4d65 client.py:100-163)', () => {
+  it('resolves the touchLink with the Bearer id token, then inits with the bare one', async () => {
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    const init = await client.webtouchInit('IAQ123');
+    expect(init).toEqual({
+      serverConnection: 'https://prm.iaqualink.net/v2/webtouch/stream?session=abc',
+      master: 'MASTER-1',
+      start: 'START-1',
+      stb: 'STB-1',
+    });
+    const prm = server.log.filter((r) => r.url.host === 'prm.iaqualink.net');
+    expect(prm.map((r) => [r.url.pathname, r.headers.authorization])).toEqual([
+      ['/v2/userId', 'Bearer id-tok-1'],
+      ['/v2/users/u-77/locations', 'Bearer id-tok-1'],
+      ['/v2/webtouch/init', 'id-tok-1'],
+    ]);
+    expect(prm[2]!.url.searchParams.get('actionID')).toBe('TOUCH-123');
+  });
+
+  it('accepts a {locations: […]} body and the snake_case fields', async () => {
+    const server = new FakeIaqualink();
+    server.locations = { locations: [{ serial: 'OTHER' }, { serial: 'IAQ123', touch_link: 'TOUCH-123' }] };
+    const { client } = make(server);
+    expect((await client.webtouchInit('IAQ123')).master).toBe('MASTER-1');
+  });
+
+  it('explains a missing location, touchLink, user id or init field', async () => {
+    const cases: Array<[(s: FakeIaqualink) => void, RegExp]> = [
+      [(s) => (s.locations = [{ serial_number: 'OTHER', touchLink: 'x' }]), /no WebTouch location for IAQ123/],
+      [(s) => (s.locations = { nope: 1 }), /no WebTouch location/],
+      [(s) => (s.locations = null), /no WebTouch location/],
+      [(s) => (s.locations = [{ serial_number: 'IAQ123' }]), /no touchLink/],
+      [(s) => (s.webtouchInit = { ...s.webtouchInit, actionIdMasterSTB: undefined }), /init response/],
+      [(s) => (s.webtouchInit = { ...s.webtouchInit, serverConnection: 7 }), /init response/],
+    ];
+    for (const [tweak, msg] of cases) {
+      const server = new FakeIaqualink();
+      tweak(server);
+      const { client } = make(server);
+      await expect(client.webtouchInit('IAQ123')).rejects.toThrow(msg);
+    }
+    const server = new FakeIaqualink();
+    server.failNext(200, { match: /userId/, body: {} });
+    await expect(make(server).client.webtouchInit('IAQ123')).rejects.toThrow(/user id/);
+  });
+
+  it('accepts the stream on webtouch.iaqualink.net — where the live RS panel serves it (capture 2026-10-11)', async () => {
+    const server = new FakeIaqualink();
+    server.webtouchInit = { ...server.webtouchInit, serverConnection: 'https://webtouch.iaqualink.net/5K/ABC' };
+    expect((await make(server).client.webtouchInit('IAQ123')).serverConnection).toBe('https://webtouch.iaqualink.net/5K/ABC');
+  });
+
+  it('refuses a stream host that is not allowlisted, or not https', async () => {
+    for (const url of ['https://evil.example.com/stream', 'http://prm.iaqualink.net/v2/webtouch/stream']) {
+      const server = new FakeIaqualink();
+      server.webtouchInit = { ...server.webtouchInit, serverConnection: url };
+      await expect(make(server).client.webtouchInit('IAQ123')).rejects.toThrow(/not on the WebTouch allowlist/);
+    }
+    const server = new FakeIaqualink();
+    server.webtouchInit = { ...server.webtouchInit, serverConnection: 'https://stream.iaqualink.net/x' };
+    const { client } = make(server, { env: { IAQUALINK_WEBTOUCH_STREAM_HOSTS: ' stream.iaqualink.net , other.example ' } });
+    expect((await client.webtouchInit('IAQ123')).serverConnection).toBe('https://stream.iaqualink.net/x');
+  });
+
+  it('posts commands as JSON {actionID, command, dt[, text]} with the bare id token', async () => {
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    await client.webtouchCommand('MASTER-1', 2);
+    await client.webtouchCommand('STB-1', 128, '03:00');
+    const posts = server.log.filter((r) => r.url.pathname === '/v2/webtouch/command');
+    expect(posts.map((r) => [r.headers.authorization, r.body])).toEqual([
+      ['id-tok-1', { actionID: 'MASTER-1', command: '2', dt: '1000000' }],
+      ['id-tok-1', { actionID: 'STB-1', command: '128', dt: '1000000', text: '03:00' }],
+    ]);
+  });
+
+  it('asks for an uncompressed stream, so panel updates are not held in a compressor buffer', async () => {
+    // Live 2026-10-12: with Node's default gzip/br the stream arrived in ~20 s bursts; identity was live.
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    const ac = new AbortController();
+    await client.openWebTouchStream('https://prm.iaqualink.net/v2/webtouch/stream?session=abc', ac.signal);
+    ac.abort();
+    const req = server.log.find((r) => r.url.pathname === '/v2/webtouch/stream');
+    expect(req!.headers['accept-encoding']).toBe('identity');
+  });
+
+  it('opens the stream, and reports a refused one', async () => {
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    const ac = new AbortController();
+    const body = await client.openWebTouchStream('https://prm.iaqualink.net/v2/webtouch/stream?session=abc', ac.signal);
+    expect(body).toBeInstanceOf(ReadableStream);
+    ac.abort();
+    server.failNext(503, { match: /stream/ });
+    await expect(client.openWebTouchStream('https://prm.iaqualink.net/v2/webtouch/stream', ac.signal)).rejects.toThrow(/stream answered 503/);
+    const noBody = new IaqualinkClient({ email: 'a', password: 'b', fetchImpl: async () => new Response(null, { status: 200 }) });
+    await expect(noBody.openWebTouchStream('https://prm.iaqualink.net/x', ac.signal)).rejects.toThrow(/no body/);
+  });
+});

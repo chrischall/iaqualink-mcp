@@ -1,6 +1,6 @@
 ---
 name: iaqualink
-description: Check and control an iAqualink (Zodiac / Jandy iAquaLink / Fluidra) pool or spa through the iaqualink-mcp tools — pool, spa and air temperatures, heater set points, pumps, heaters, lights, aux circuits (cleaner, waterfall, bubbler), salt chlorinator output, salinity, pH and ORP. Use when the user asks "what's the pool temperature", "is the pool pump running", "turn on the spa", "heat the spa to 102", "turn on the pool lights", "set the pool light to Caribbean Blue", "boost the chlorinator", or anything about their iAqualink / iAquaLink / eXO system.
+description: Check and control an iAqualink (Zodiac / Jandy iAquaLink / Fluidra) pool or spa through the iaqualink-mcp tools — pool, spa and air temperatures, heater set points, pumps, heaters, lights, aux circuits (cleaner, waterfall, bubbler), salt chlorinator output, salinity, pH and ORP, schedules/timers and OneTouch scenes. Use when the user asks "what's the pool temperature", "is the pool pump running", "turn on the spa", "heat the spa to 102", "turn on the pool lights", "set the pool light to Caribbean Blue", "boost the chlorinator", "what are the pool schedules", "run Spa Mode", or anything about their iAqualink / iAquaLink / eXO system.
 ---
 
 # iAqualink (iaqualink-mcp)
@@ -40,6 +40,11 @@ temperature while the spa pump is off.
 | dimmable light level (0/25/50/75/100) or color effect | `iaqualink_set_light { serial, aux, brightness \| effect }` |
 | pool and/or spa target temperature | `iaqualink_set_temperature { serial, pool?, spa? }` |
 | eXO chlorinator output % | `iaqualink_set_chlorinator { serial, percent }` |
+| run / stop a OneTouch scene (iAqua) | `iaqualink_set_onetouch { serial, onetouch, on }` |
+| add a panel program (iAqua) | `iaqualink_add_schedule { serial, circuit, start, stop, days }` |
+| change a panel program's times/days | `iaqualink_edit_schedule { serial, page, row, circuit, start, stop, days, newStart?, newStop?, newDays? }` |
+| delete a panel program (no undo) | `iaqualink_delete_schedule { serial, page, row, circuit, start, stop, days }` |
+| change or disable an eXO timer | `iaqualink_set_schedule { serial, schedule, start, stop, rpm?, enabled? }` |
 
 Every write:
 
@@ -64,6 +69,29 @@ Notes:
   confirmed only by the light being on.
 - `iaqualink_set_chlorinator` uses an inferred request shape (not in the
   reference client) — trust it only when the result is `confirmed`.
+
+## Schedules and scenes
+
+- `iaqualink_list_schedules { serial }` — on a Jandy AquaLink RS panel
+  (iAqua): the panel's own programs (circuit, 24-hour start/stop plus the
+  panel's text, run days, and the page/row each sits at), read through
+  WebTouch. eXO: pump / chlorinator / aux timers. If WebTouch is unavailable
+  the result says so (`webtouchError`) and shows the iQ20 fallback instead.
+- RS panel programs: `iaqualink_add_schedule`, `iaqualink_edit_schedule`,
+  `iaqualink_delete_schedule`. Edit and delete identify a program by exactly
+  what the list showed (page, row, circuit, start, stop, days) — always list
+  first. Times are 24-hour `HH:MM`; a stop earlier than the start runs
+  overnight. Run days are the panel's: `All`, `M`, `Tu`, `W`, `Th`, `F`, `Sa`,
+  `Su`, `Wkdays`, `Wkends`. The preview shows the list before and after;
+  `confirmed` means a fresh re-read matched. Delete has **no undo**.
+- If a panel write aborts, the error says exactly what state the panel was
+  left in (e.g. "in Edit mode with UNSAVED changes") — relay it verbatim.
+- eXO timers: `iaqualink_set_schedule`; a chlorinator timer must sit inside
+  its pump timer's window, and `enabled: false` clears a timer.
+- `iaqualink_list_onetouch` / `iaqualink_set_onetouch` — the panel's
+  one-button scenes ("Spa Mode", "All OFF"), via WebTouch. The button is a
+  toggle; it is pressed only when the scene is not already in the requested
+  state.
 
 ## Trouble
 

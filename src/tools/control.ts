@@ -50,7 +50,7 @@ import type { Deps } from './deps.js';
 type Iaqua = Extract<RawStatus, { kind: 'iaqua' }>;
 type Exo = Extract<RawStatus, { kind: 'exo' }>;
 
-interface Plan {
+export interface Plan {
   tool: string;
   action: string;
   summary: string;
@@ -63,24 +63,28 @@ interface Plan {
   request: ConfirmWriteRequest;
   send: () => Promise<unknown>;
   /** Read the value this write is proven by, from a fresh status. */
-  observe: (raw: RawStatus) => unknown;
+  observe?: (raw: RawStatus) => unknown;
+  /** Instead of `observe`: read the proving value some other way (e.g. a command the status read does not include). */
+  reread?: () => Promise<unknown>;
+  /** Overrides the default "sent-unconfirmed" advice. */
+  unconfirmedNote?: string;
   /** Whether an observed value proves the write. Defaults to deep equality with `requested`. */
   settled?: (observed: unknown) => boolean;
   note?: string;
 }
 
-const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+export const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-function iaquaRequest(serial: string, command: string, params: Record<string, string> = {}): ConfirmWriteRequest {
+export function iaquaRequest(serial: string, command: string, params: Record<string, string> = {}): ConfirmWriteRequest {
   // The session id is added at send time and is deliberately not part of the preview.
   return { method: 'GET', path: '/v2/mobile/session.json', query: { ...params, actionID: 'command', command, serial } };
 }
 
-function exoRequest(serial: string, desired: Record<string, unknown>): ConfirmWriteRequest {
+export function exoRequest(serial: string, desired: Record<string, unknown>): ConfirmWriteRequest {
   return { method: 'POST', path: `/devices/v1/${serial}/shadow`, body: { state: { desired } } };
 }
 
-async function execute(
+export async function execute(
   ctx: ServerContext,
   deps: Deps,
   serial: string,
@@ -112,7 +116,7 @@ async function execute(
 
   const settled = plan.settled ?? ((v: unknown) => same(v, plan.requested));
   const v = await verifyAfterWrite({
-    read: async () => plan.observe(await deps.client.readRawStatus(serial, { fresh: true })),
+    read: plan.reread ?? (async () => plan.observe!(await deps.client.readRawStatus(serial, { fresh: true }))),
     isSettled: settled,
     ...deps.timing[kind],
   });
@@ -125,9 +129,10 @@ async function execute(
   if (v.outcome === 'read_failed') result.readError = messageOf(v.error);
   if (!v.settled) {
     result.note =
-      kind === 'exo'
+      plan.unconfirmedNote ??
+      (kind === 'exo'
         ? 'iAqualink accepted the change, but the eXO had not reported it yet when this stopped checking (it applies changes asynchronously). Check again with iaqualink_get_status in a minute before retrying.'
-        : 'iAqualink accepted the command, but a re-read did not show the change yet. Check again with iaqualink_get_status before retrying — these commands are toggles, so a blind retry could undo it.';
+        : 'iAqualink accepted the command, but a re-read did not show the change yet. Check again with iaqualink_get_status before retrying — these commands are toggles, so a blind retry could undo it.');
   }
   if (plan.note) result.caveat = plan.note;
   return minifiedResult(result);

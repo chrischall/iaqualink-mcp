@@ -59,3 +59,19 @@ describe('.claude-plugin/plugin.json', () => {
     expect(plugin.skills).toBe('./skills/');
   });
 });
+
+describe('environment variables', () => {
+  it('declares every IAQUALINK_* variable the server reads in manifest.json, server.json and .mcp.json (CI strict surface lint)', () => {
+    const src = ['src/client.ts', 'src/index.ts'].map((p) => readFileSync(join(ROOT, p), 'utf8')).join('\n');
+    const read = [...new Set([...src.matchAll(/'(IAQUALINK_[A-Z_]+)'/g)].map((m) => m[1]!))].sort();
+    expect(read.length).toBeGreaterThan(0);
+    const manifestEnv = Object.keys(json('manifest.json').server.mcp_config.env).sort();
+    const serverEnv = (json('server.json').packages as Array<{ environmentVariables: Array<{ name: string }> }>)
+      .flatMap((p) => p.environmentVariables.map((e) => e.name))
+      .sort();
+    const mcpEnv = Object.keys(Object.values(json('.mcp.json').mcpServers as Record<string, { env: object }>)[0]!.env).sort();
+    expect(manifestEnv).toEqual(read);
+    expect(serverEnv).toEqual(read);
+    expect(mcpEnv).toEqual(read);
+  });
+});

@@ -32,9 +32,31 @@ own discretion.
 | `iaqualink_set_light` | Dimmable brightness (0/25/50/75/100) or color effect (iAqua) | write, not destructive |
 | `iaqualink_set_temperature` | Pool and/or spa set point (iAqua °F/°C; eXO °C pool) | write, not destructive |
 | `iaqualink_set_chlorinator` | eXO chlorinator output % — **inferred shape, not in iaqualink-py** | write, not destructive |
+| `iaqualink_list_schedules` | RS panel programs via WebTouch (iAqua; iQ20 fallback probe); eXO timers | read |
+| `iaqualink_add_schedule` | Add an RS panel program (circuit, start, stop, run days) via WebTouch | write, not destructive |
+| `iaqualink_edit_schedule` | Change an RS panel program's start / stop / run days via WebTouch | write, not destructive |
+| `iaqualink_delete_schedule` | Delete an RS panel program via WebTouch — **no undo** | write, **destructive** |
+| `iaqualink_set_schedule` | Set / re-time / disable an eXO timer (start–stop, rpm on variable-speed pumps) — **eXO only, unverified live** | write, not destructive |
+| `iaqualink_list_onetouch` | RS panel OneTouch scenes (Spa Mode, All OFF, …) and their state, via WebTouch | read |
+| `iaqualink_set_onetouch` | Turn a OneTouch scene on/off via WebTouch — **toggle not exercised live yet** | write, not destructive |
 
-Every write has an inverse in this set and reaches no other person, so none is
-marked destructive.
+Every write has an inverse in this set and reaches no other person — except
+deleting a panel program, which the panel stores immediately with no undo, so
+that one is marked destructive.
+
+**Schedules and OneTouch on a Jandy AquaLink RS panel** go through
+**WebTouch**, the panel emulation the iAqualink web app uses: the server opens
+the panel's display stream, presses the same buttons a person would (checking
+before every press that the panel is on the expected screen and row, and
+aborting otherwise), returns to Home, and re-reads to verify. Only one WebTouch
+session per system runs at a time. The add / edit / delete sequences follow a
+live capture on an RS panel (2026-10-11) — see
+[docs/IAQUALINK-API.md](docs/IAQUALINK-API.md#webtouch-aqualink-rs-panel-emulation).
+If WebTouch is unavailable, `iaqualink_list_schedules` falls back to iQ20
+schedules (adapter firmware 3+), probing `r-api.iaqualink.net/v2` (Bearer),
+`p-api.iaqualink.net/v2` (Bearer), `p-api.iaqualink.net/v2` (bare token) and
+`prm.iaqualink.net/v1` (bare token) once each and reporting every attempt.
+iQ20 schedule *writes* are not built.
 
 **How a write works.** It reads the current state first and sends nothing if
 it already matches — iAqua's pump/heater/aux commands are *toggles*, so a blind
@@ -56,6 +78,7 @@ npm i -g @chrischall/iaqualink-mcp
 | `IAQUALINK_EMAIL` | for every tool | Your iAqualink app sign-in email |
 | `IAQUALINK_PASSWORD` | for every tool | Your iAqualink password (not trimmed) |
 | `IAQUALINK_STATUS_CACHE_SECONDS` | no | Seconds a status read is reused (default 5; 0 disables) |
+| `IAQUALINK_WEBTOUCH_STREAM_HOSTS` | no | Extra hosts (comma-separated) the WebTouch display stream may come from; default only `prm.iaqualink.net` |
 | `MCP_CONFIRM_MODE` | no | `ask-user` (default) / `auto` / `refuse` |
 | `MCP_CONFIRM_TTL_SECONDS` | no | confirmToken lifetime (default 600) |
 | `MCP_CONFIRM_ELICITATION` | no | `off` skips the prompt even on clients that declare elicitation |
@@ -71,7 +94,10 @@ Claude Code: `claude mcp add iaqualink -e IAQUALINK_EMAIL=… -e IAQUALINK_PASSW
 
 `mint.yaml` declares per-user children with an email/password form on the
 connector's authorize page (each person signs in as themselves), egress to
-exactly `prod.zodiac-io.com` and `r-api.iaqualink.net`, and no persistent
+exactly `prod.zodiac-io.com`, `r-api.iaqualink.net`, `p-api.iaqualink.net`
+(iQ20 probe only) and `prm.iaqualink.net` (WebTouch, and the iQ20 probe); the
+WebTouch display stream is refused on any other host unless it is added to
+`IAQUALINK_WEBTOUCH_STREAM_HOSTS` (and egress). No persistent
 state — the session lives in memory and one sign-in rebuilds it after a cold
 start.
 

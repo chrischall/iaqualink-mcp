@@ -4,11 +4,16 @@
  * Every endpoint, header and body here is transcribed from iaqualink-py 0.7.0
  * — the open-source client Home Assistant's integration uses — and is NOT yet
  * verified against a live account (docs/IAQUALINK-API.md records provenance
- * line by line). Three hosts are involved:
+ * line by line). The hosts involved:
  *
  *  - `prod.zodiac-io.com` — login, token refresh, and the eXO device shadow;
  *  - `r-api.iaqualink.net` — the system list (`devices.json`) and the iAqua
- *    command channel (`v2/mobile/session.json`).
+ *    command channel (`v2/mobile/session.json`);
+ *  - `p-api.iaqualink.net` and `prm.iaqualink.net` — ALTERNATE iAqua command
+ *    channels, tried only by the iQ20 schedule probe (see SESSION_ENDPOINTS):
+ *    which one serves schedules is not yet known from a live account;
+ *  - `prm.iaqualink.net/v2` — WebTouch, the RS panel emulation (src/webtouch.ts):
+ *    location lookup, init, commands, and the panel's display stream.
  *
  * Auth is a plain server-side email/password login. Two rules matter more than
  * anything else in this file:
@@ -46,6 +51,53 @@ export const REFRESH_URL = 'https://prod.zodiac-io.com/users/v1/refresh';
 export const DEVICES_URL = 'https://r-api.iaqualink.net/devices.json';
 export const IAQUA_SESSION_URL = 'https://r-api.iaqualink.net/v2/mobile/session.json';
 export const EXO_DEVICES_URL = 'https://prod.zodiac-io.com/devices/v1';
+/** iaqualink-py master (eb1cf63) systems/iaqua/system.py:45 — its session URL since it moved off r-api. */
+export const P_API_SESSION_URL = 'https://p-api.iaqualink.net/v2/mobile/session.json';
+/** The iAquaLink iOS app's schedule host (krishvios/iAquaLink-Mirror@50e4182 Environment.m:313-327 + IQ20ApiManager.m:197-231). */
+export const PRM_SESSION_URL = 'https://prm.iaqualink.net/v1/mobile/session.json';
+
+/** WebTouch (RS panel emulation) — ejc3/iaqualink-webtouch@42c4d65 client.py:19-20,100-163 and the 2026-10-11 live capture. */
+export const PRM_ROOT = 'https://prm.iaqualink.net/v2';
+export const WEBTOUCH_USER_URL = `${PRM_ROOT}/userId`;
+export const WEBTOUCH_INIT_URL = `${PRM_ROOT}/webtouch/init`;
+export const WEBTOUCH_COMMAND_URL = `${PRM_ROOT}/webtouch/command`;
+/** Hosts the WebTouch display stream (init's `serverConnection`) may be on; extend with IAQUALINK_WEBTOUCH_STREAM_HOSTS. */
+// The live RS panel's stream came from webtouch.iaqualink.net (capture 2026-10-11).
+export const WEBTOUCH_STREAM_HOSTS = ['webtouch.iaqualink.net', 'prm.iaqualink.net'];
+
+/** What `webtouch/init` hands back that a session needs. */
+export interface WebTouchInit {
+  /** The display stream URL (an iframe in the browser). */
+  serverConnection: string;
+  /** actionID for button presses (`actionIdMasterId`). */
+  master: string;
+  /** actionID for the start-up press (`actionIdMasterStart`). */
+  start: string;
+  /** actionID for keypad text entry (`actionIdMasterSTB`). */
+  stb: string;
+}
+
+/** One way of reaching the iAqua session.json command channel. */
+export interface SessionEndpoint {
+  id: string;
+  url: string;
+  /** `bearer` = `Authorization: Bearer <IdToken>`; `bare` = `Authorization: <IdToken>`. */
+  auth: 'bearer' | 'bare';
+  source: string;
+}
+
+/**
+ * The candidate command channels, in the order the iQ20 schedule probe tries
+ * them (each once). The first is the channel every other command uses; the
+ * rest differ in host, API version and Authorization style, and come from
+ * sources that disagree with each other (docs/IAQUALINK-API.md "Schedules").
+ */
+export const SESSION_ENDPOINTS: readonly SessionEndpoint[] = [
+  { id: 'r-api-v2', url: IAQUA_SESSION_URL, auth: 'bearer', source: 'this server\'s iAqua channel (iaqualink-py 0.7.0)' },
+  { id: 'p-api-v2', url: P_API_SESSION_URL, auth: 'bearer', source: 'iaqualink-py master system.py:45,129-131' },
+  { id: 'p-api-v2-bare', url: P_API_SESSION_URL, auth: 'bare', source: 'iaqualink-py master docs/reference/systems/iaqua.md:19-27' },
+  { id: 'prm-v1', url: PRM_SESSION_URL, auth: 'bare', source: 'iAquaLink iOS app 2022 (Environment.m:313-327, AuthenticatedConnection.m:60-63)' },
+];
 
 const USER_AGENT = 'okhttp/3.14.7';
 const SERVICE = 'iAqualink';
@@ -113,6 +165,7 @@ export class IaqualinkClient {
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly throttle: Throttle;
+  private readonly streamHosts: string[];
 
   private session: Session | undefined;
   private authInFlight: Promise<Session> | undefined;
@@ -134,6 +187,8 @@ export class IaqualinkClient {
     this.now = opts.now ?? Date.now;
     this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.throttle = createThrottle({ minIntervalMs: opts.minIntervalMs ?? 250 });
+    const extra = readEnvVar('IAQUALINK_WEBTOUCH_STREAM_HOSTS', { env }) ?? '';
+    this.streamHosts = [...WEBTOUCH_STREAM_HOSTS, ...extra.split(',').map((h) => h.trim().toLowerCase()).filter(Boolean)];
   }
 
   /** Where the credential came from — never its value. */
@@ -283,12 +338,17 @@ export class IaqualinkClient {
    * Run an authenticated request, re-authenticating ONCE on a 401. A second
    * 401 after a fresh session is reported, never retried again.
    */
-  private async withSession<T>(call: (s: Session) => Promise<T>): Promise<T> {
+  private async withSession<T>(call: (s: Session) => Promise<T>, opts: { reauth?: boolean } = {}): Promise<T> {
     const session = this.session ?? (await this.authenticate());
     try {
       return await call(session);
     } catch (err) {
       if (!(err instanceof AuthExpired)) throw err;
+      // An alternate endpoint refusing a session the primary accepts says
+      // nothing about the session — report it rather than re-authenticating.
+      if (opts.reauth === false) {
+        throw new McpToolError(`iAqualink answered ${err.status} on this endpoint.`, { kind: 'http', status: err.status });
+      }
     }
     // Concurrent 401s share the in-flight refresh (see authenticate).
     const fresh = await this.authenticate(session);
@@ -338,14 +398,38 @@ export class IaqualinkClient {
     return hit;
   }
 
-  async iaquaCommand(serial: string, command: string, params: Record<string, string> = {}): Promise<unknown> {
-    return this.withSession((s) => {
-      const qs = new URLSearchParams({ ...params, actionID: 'command', command, serial, sessionID: s.sessionId });
-      return this.send(`${IAQUA_SESSION_URL}?${qs}`, {
-        method: 'GET',
-        headers: { authorization: `Bearer ${s.idToken}`, api_key: API_KEY },
-      });
-    });
+  /**
+   * Send an iAqua session.json command. `endpoint` defaults to the primary
+   * channel; an alternate one never triggers a re-authentication (a 401 there
+   * is reported as an `http` error) so the schedule probe cannot churn logins.
+   */
+  async iaquaCommand(
+    serial: string,
+    command: string,
+    params: Record<string, string> = {},
+    endpoint: SessionEndpoint = SESSION_ENDPOINTS[0]!,
+  ): Promise<unknown> {
+    return this.withSession(
+      (s) => {
+        const qs = new URLSearchParams({ ...params, actionID: 'command', command, serial, sessionID: s.sessionId });
+        return this.send(`${endpoint.url}?${qs}`, {
+          method: 'GET',
+          headers: { authorization: endpoint.auth === 'bearer' ? `Bearer ${s.idToken}` : s.idToken, api_key: API_KEY },
+        });
+      },
+      { reauth: endpoint === SESSION_ENDPOINTS[0] },
+    );
+  }
+
+  /**
+   * Redact upstream text for a tool result: secret shapes and length via
+   * `truncateErrorMessage`, then the password and every live session token
+   * by value (they have no recognisable shape).
+   */
+  scrubText(text: string, max = 2_000): string {
+    const s = this.session;
+    const secrets = [this.password, s?.sessionId, s?.authToken, s?.idToken, s?.refreshToken].filter((x): x is string => Boolean(x));
+    return secrets.reduce((t, secret) => t.split(secret).join('[redacted]'), truncateErrorMessage(text, max));
   }
 
   async getExoShadow(serial: string): Promise<unknown> {
@@ -365,6 +449,66 @@ export class IaqualinkClient {
         body: JSON.stringify({ state: { desired } }),
       }),
     );
+  }
+
+  // ── WebTouch ──────────────────────────────────────────────────────────────
+
+  /**
+   * Find the system's WebTouch location and initialise a panel session:
+   * `GET /v2/userId` → `session_user_id`, `GET /v2/users/<id>/locations` →
+   * the location's `touchLink` (both `Authorization: Bearer <IdToken>`), then
+   * `GET /v2/webtouch/init?actionID=<touchLink>` (bare IdToken). The stream
+   * URL must be https on an allowlisted host.
+   */
+  async webtouchInit(serial: string): Promise<WebTouchInit> {
+    const bearer = (url: string) => this.withSession((s) => this.send(url, { method: 'GET', headers: { authorization: `Bearer ${s.idToken}` } }));
+    const user = (await bearer(WEBTOUCH_USER_URL)) as { session_user_id?: unknown } | null;
+    if (typeof user?.session_user_id !== 'string' && typeof user?.session_user_id !== 'number') {
+      throw new McpToolError('WebTouch: iAqualink returned no user id.', { kind: 'http' });
+    }
+    const locs = (await bearer(`${PRM_ROOT}/users/${encodeURIComponent(String(user.session_user_id))}/locations`)) as unknown;
+    const list = Array.isArray(locs) ? locs : (locs as { locations?: unknown } | null)?.locations;
+    const loc = (Array.isArray(list) ? list : []).find(
+      (l: Record<string, unknown>) => (l?.serial_number ?? l?.serial) === serial,
+    ) as Record<string, unknown> | undefined;
+    if (!loc) throw new McpToolError(`iAqualink lists no WebTouch location for ${serial}.`);
+    const touchLink = loc.touchLink ?? loc.touch_link;
+    if (typeof touchLink !== 'string' || !touchLink) throw new McpToolError(`The WebTouch location for ${serial} has no touchLink.`);
+    const init = (await this.withSession((s) =>
+      this.send(`${WEBTOUCH_INIT_URL}?${new URLSearchParams({ actionID: touchLink })}`, { method: 'GET', headers: { authorization: s.idToken } }),
+    )) as Record<string, unknown> | null;
+    const f = [init?.serverConnection, init?.actionIdMasterId, init?.actionIdMasterStart, init?.actionIdMasterSTB];
+    if (!f.every((x) => typeof x === 'string' && x !== '')) {
+      throw new McpToolError('WebTouch: unexpected init response (missing serverConnection / actionIdMaster* fields).', { kind: 'http' });
+    }
+    const [serverConnection, master, start, stb] = f as string[];
+    const u = new URL(serverConnection!);
+    if (u.protocol !== 'https:' || !this.streamHosts.includes(u.host.toLowerCase())) {
+      throw new McpToolError(`WebTouch: the display stream host ${u.protocol}//${u.host} is not on the WebTouch allowlist.`, {
+        hint: 'If iAqualink really serves the stream there, add the host to IAQUALINK_WEBTOUCH_STREAM_HOSTS (and, hosted, to mint.yaml egress).',
+      });
+    }
+    return { serverConnection: serverConnection!, master: master!, start: start!, stb: stb! };
+  }
+
+  /** Press a panel button (or, with `text`, submit the keypad). 200 with an empty body. */
+  async webtouchCommand(actionID: string, command: number, text?: string): Promise<void> {
+    const body = { actionID, command: String(command), dt: String(this.now()), ...(text !== undefined ? { text } : {}) };
+    await this.withSession((s) =>
+      this.send(WEBTOUCH_COMMAND_URL, { method: 'POST', headers: { authorization: s.idToken }, body: JSON.stringify(body) }),
+    );
+  }
+
+  /**
+   * Open the long-lived display stream. Unauthenticated (as ejc3's client does); closed via `signal`.
+   * Uncompressed on purpose: with fetch's default gzip/br the panel's updates sat in a compressor
+   * buffer and arrived in ~20 s bursts (live 2026-10-12); identity streams them as they happen.
+   */
+  async openWebTouchStream(url: string, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
+    const res = await this.fetchImpl(url, { method: 'GET', headers: { 'user-agent': USER_AGENT, 'accept-encoding': 'identity' }, signal });
+    if (res.status !== 200) throw new McpToolError(`WebTouch: the display stream answered ${res.status}.`, { kind: 'http', status: res.status });
+    if (!res.body) throw new McpToolError('WebTouch: the display stream returned no body.', { kind: 'http' });
+    return res.body;
   }
 
   /** The system's raw status, cached per serial for {@link statusCacheMs} unless `fresh`. */

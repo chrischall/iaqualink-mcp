@@ -9,14 +9,20 @@ import {
   DEVICES,
   IAQUA_AUX,
   IAQUA_HOME_STATE,
+  IQ20_MASTER_DEVICES,
+  IQ20_SCHEDULES,
   LOGIN_OK,
+
   REFRESH_OK,
   devicesScreen,
   exoShadow,
   homeScreen,
+
   type AuxState,
   type HomeState,
 } from './fixtures.js';
+
+import { FakeWebTouch, WT_INIT } from './fake-webtouch.js';
 
 export interface LoggedRequest {
   method: string;
@@ -54,6 +60,26 @@ export class FakeIaqualink {
   afterWrite: (() => void) | undefined;
   /** Login-response override (e.g. to drop the RefreshToken). */
   loginBody: Json = structuredClone(LOGIN_OK);
+  /** Top-level get_home fields outside home_screen (iaqualink-py docs iaqua.md "Top-level response fields"). */
+  homeExtras: Json = { onetouch: 'true', attached_system_fw_version: '3.0' };
+  /**
+   * Which session endpoint (client SESSION_ENDPOINTS id) answers the iQ20
+   * schedule/device-list commands. The others reply "unknown command" — the
+   * live answer is not known yet, which is why the client probes.
+   */
+  scheduleEndpoint: string | null = 'p-api-v2';
+  schedules: Json[] = structuredClone(IQ20_SCHEDULES);
+  masterDevices: Json[] = structuredClone(IQ20_MASTER_DEVICES);
+  isNewScheduleAllowed = true;
+  /** When set, get_schedule_list answers `is_error: true` with this response text. */
+  scheduleError: string | undefined;
+
+  /** The RS panel behind WebTouch. */
+  readonly webtouch = new FakeWebTouch();
+  /** prm /v2/users/<id>/locations body. */
+  locations: unknown = [{ serial_number: 'IAQ123', name: 'Pool', touchLink: 'TOUCH-123' }];
+  /** /v2/webtouch/init body. */
+  webtouchInit: Json = structuredClone(WT_INIT);
 
   readonly log: LoggedRequest[] = [];
   private authToken = '';
@@ -96,7 +122,7 @@ export class FakeIaqualink {
       const [q] = this.queued.splice(qi, 1);
       return this.reply(q!.status, q!.body ?? { message: `status ${q!.status}` }, q!.headers);
     }
-    return this.route(method, url, headers, body);
+    return this.route(method, url, headers, body, init.signal ?? undefined);
   };
 
   private reply(status: number, body: unknown, headers: Record<string, string> = {}): Response {
@@ -111,8 +137,10 @@ export class FakeIaqualink {
     return data;
   }
 
-  private route(method: string, url: URL, headers: Record<string, string>, body: Json | undefined): Response {
+  private route(method: string, url: URL, headers: Record<string, string>, body: Json | undefined, signal?: AbortSignal): Response {
     const path = `${url.host}${url.pathname}`;
+    const wt = this.webtouchRoute(method, path, url, headers, body, signal);
+    if (wt) return wt;
     if (path === 'prod.zodiac-io.com/users/v1/login' && method === 'POST') {
       if (body?.api_key !== 'EOOEMOW4YR6QNB07' || body?.password !== this.password) {
         return this.reply(401, { message: 'Authorization Required' });
@@ -129,11 +157,12 @@ export class FakeIaqualink {
       }
       return this.reply(200, this.devices);
     }
-    if (path === 'r-api.iaqualink.net/v2/mobile/session.json') {
-      if (headers.authorization !== `Bearer ${this.idToken}` || url.searchParams.get('sessionID') !== this.sessionId) {
+    const endpoint = this.sessionEndpoint(path, headers.authorization);
+    if (endpoint !== undefined) {
+      if (!endpoint || url.searchParams.get('sessionID') !== this.sessionId) {
         return this.reply(401, { message: 'Unauthorized' });
       }
-      return this.iaqua(url.searchParams);
+      return this.iaqua(url.searchParams, endpoint);
     }
     const shadow = /^prod\.zodiac-io\.com\/devices\/v1\/([^/]+)\/shadow$/.exec(path);
     if (shadow) {
@@ -148,13 +177,74 @@ export class FakeIaqualink {
     return this.reply(404, { message: 'not found' });
   }
 
-  private homeBody() {
-    return homeScreen(this.home, { status: this.homeStatus, scale: this.scale });
+  /** prm.iaqualink.net/v2 — the WebTouch bootstrap (ejc3/iaqualink-webtouch client.py:100-163) and the panel's command/stream. */
+  private webtouchRoute(method: string, path: string, url: URL, headers: Record<string, string>, body: Json | undefined, signal?: AbortSignal): Response | undefined {
+    const bearer = headers.authorization === `Bearer ${this.idToken}` && Boolean(this.idToken);
+    const bare = headers.authorization === this.idToken && Boolean(this.idToken);
+    if (path === 'prm.iaqualink.net/v2/userId') return bearer ? this.reply(200, { session_user_id: 'u-77' }) : this.reply(401, {});
+    if (path === 'prm.iaqualink.net/v2/users/u-77/locations') return bearer ? this.reply(200, this.locations) : this.reply(401, {});
+    if (path === 'prm.iaqualink.net/v2/webtouch/init') {
+      if (!bare) return this.reply(401, {});
+      return url.searchParams.get('actionID') === 'TOUCH-123' ? this.reply(200, this.webtouchInit) : this.reply(404, { message: 'no such location' });
+    }
+    if (path === 'prm.iaqualink.net/v2/webtouch/command' && method === 'POST') {
+      if (!bare) return this.reply(401, {});
+      this.webtouch.command(String(body!.actionID), String(body!.command), body!.text === undefined ? undefined : String(body!.text));
+      return new Response('', { status: 200 });
+    }
+    if (path === 'prm.iaqualink.net/v2/webtouch/stream') return this.webtouch.stream(signal);
+    return undefined;
   }
 
-  private iaqua(q: URLSearchParams): Response {
+  /**
+   * The session endpoint a request reached: its client id, '' when the token
+   * is wrong for it, undefined when the path is not a session endpoint.
+   */
+  private sessionEndpoint(path: string, auth: string | undefined): string | undefined {
+    const bearer = auth === `Bearer ${this.idToken}`;
+    const bare = auth === this.idToken;
+    if (path === 'r-api.iaqualink.net/v2/mobile/session.json') return bearer ? 'r-api-v2' : '';
+    if (path === 'p-api.iaqualink.net/v2/mobile/session.json') return bearer ? 'p-api-v2' : bare ? 'p-api-v2-bare' : '';
+    if (path === 'prm.iaqualink.net/v1/mobile/session.json') return bare ? 'prm-v1' : '';
+    return undefined;
+  }
+
+  private homeBody() {
+    return { ...this.homeExtras, ...homeScreen(this.home, { status: this.homeStatus, scale: this.scale }) };
+  }
+
+  private scheduleBody(): Json {
+    if (this.scheduleError !== undefined) {
+      return { is_error: true, response: this.scheduleError, count: 0, totalCount: 0, scheduleList: [] };
+    }
+    return {
+      serial: 'IAQ123',
+      device_status: 'online',
+      is_error: false,
+      count: this.schedules.length,
+      totalCount: this.schedules.length,
+      pageNum: 1,
+      isNewScheduleAllowed: this.isNewScheduleAllowed,
+      scheduleList: this.schedules,
+      response: 'success',
+    };
+  }
+
+  private scheduleCommand(cmd: string): Response {
+    if (cmd === 'get_master_device_list') {
+      const list = this.masterDevices;
+      return this.reply(200, { is_error: false, count: list.length, totalCount: list.length, listType: 1, pageNum: 1, deviceList: list, response: 'success' });
+    }
+    return this.reply(200, this.scheduleBody());
+  }
+
+  private iaqua(q: URLSearchParams, endpoint: string): Response {
     const cmd = q.get('command') ?? '';
     const devicesBody = () => devicesScreen(this.aux, { status: this.homeStatus });
+    if (/schedule|master_device/.test(cmd)) {
+      if (endpoint !== this.scheduleEndpoint) return this.reply(200, { message: 'unknown command' });
+      return this.scheduleCommand(cmd);
+    }
     if (cmd === 'get_home') return this.reply(200, this.homeBody());
     if (cmd === 'get_devices') return this.reply(200, devicesBody());
     this.afterWrite?.();
