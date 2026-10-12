@@ -1,7 +1,7 @@
 {
   "name": "iaqualink-mcp",
   "displayName": "iAqualink",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for iAqualink (Zodiac/Jandy/Fluidra) pool equipment — status plus confirm-gated pump, heater, light, aux and set-point control",
   "author": {
     "name": "Chris Hall",
