@@ -24,6 +24,7 @@ const EXPECTED = [
   'iaqualink_get_status',
   'iaqualink_healthcheck',
   'iaqualink_list_onetouch',
+  'iaqualink_list_pump_speeds',
   'iaqualink_list_schedules',
   'iaqualink_list_systems',
   'iaqualink_set_aux',
@@ -31,6 +32,8 @@ const EXPECTED = [
   'iaqualink_set_equipment',
   'iaqualink_set_light',
   'iaqualink_set_onetouch',
+  'iaqualink_set_pump_speed',
+  'iaqualink_set_pump_speed_rpm',
   'iaqualink_set_schedule',
   'iaqualink_set_temperature',
 ];
@@ -82,6 +85,7 @@ describe('tool annotations', () => {
       'iaqualink_get_status',
       'iaqualink_healthcheck',
       'iaqualink_list_onetouch',
+      'iaqualink_list_pump_speeds',
       'iaqualink_list_schedules',
       'iaqualink_list_systems',
     ]);

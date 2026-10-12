@@ -113,6 +113,18 @@
       "description": "Check whether an AquaLink RS system is online and what its panel is showing (screen, open dialog, schedule Edit mode with unsaved changes), via WebTouch — presses nothing beyond the page's start-up press"
     },
     {
+      "name": "iaqualink_list_pump_speeds",
+      "description": "List an AquaLink RS panel's variable-speed pump speeds (Pool, Spa, …) with each RPM and which one runs, via WebTouch"
+    },
+    {
+      "name": "iaqualink_set_pump_speed",
+      "description": "Run an AquaLink RS panel's variable-speed pump at one of its named speeds, via WebTouch"
+    },
+    {
+      "name": "iaqualink_set_pump_speed_rpm",
+      "description": "Change the RPM of one of an AquaLink RS panel's named pump speeds (600-3450), via WebTouch; restores the running speed"
+    },
+    {
       "name": "iaqualink_list_onetouch",
       "description": "List an AquaLink RS panel's OneTouch scenes (e.g. Spa Mode, All OFF) and whether each is on, via WebTouch"
     },

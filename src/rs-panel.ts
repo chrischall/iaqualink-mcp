@@ -13,6 +13,10 @@
  *   keypad  41   17 AM/PM · text 25 "1||hh:mm", "2||AM|PM" · Enter = 128 + text "hh:mm" on actionIdMasterSTB
  *   picker  56   17 PageUp · 18 PageDown · 19 Select · 20..26 rows 1..7 (19 + row)
  *   onetouch 77  17 + idx toggles scene idx (0..5)
+ *   home → 24 Other Devices → devices 54 (17 + idx; the pump's entry shows "ADJ", not ON/OFF)
+ *   vsp     30   17 + idx makes named speed idx (0..7) the running speed · text 25 "0||rpm" ·
+ *                Enter = 128 + text "rpm" on actionIdMasterSTB stores it for the running speed → 54
+ *                (live 2026-10-12)
  *
  * Every press is preceded by a check that the panel is on the expected screen
  * (and row); any mismatch aborts. On abort the panel is put back as safely as
@@ -21,8 +25,10 @@
 import { McpToolError, messageOf } from '@chrischall/mcp-utils';
 import type { PanelState, WebTouchSession } from './webtouch.js';
 
-export const SCREEN = { home: '1', menu: '15', schedule: '40', keypad: '41', picker: '56', onetouch: '77' } as const;
-const SCREEN_NAMES: Record<string, string> = { 1: 'Home', 15: 'Menu', 40: 'Schedule', 41: 'Time keypad', 56: 'Device picker', 77: 'OneTouch' };
+export const SCREEN = { home: '1', menu: '15', schedule: '40', keypad: '41', picker: '56', onetouch: '77', devices: '54', vsp: '30' } as const;
+const SCREEN_NAMES: Record<string, string> = {
+  1: 'Home', 15: 'Menu', 30: 'Pump speeds', 40: 'Schedule', 41: 'Time keypad', 54: 'Devices', 56: 'Device picker', 77: 'OneTouch',
+};
 const CMD = {
   home: 1,
   menu: 2,
@@ -44,6 +50,9 @@ const CMD = {
   pickerRow0: 19,
   dialogOk: 1,
   dialogCancel: 2,
+  back: 5,
+  otherDevices: 24,
+  button0: 17,
 } as const;
 /** Run-day buttons in panel order (button idx 6 + k, command 23 + k). */
 export const PANEL_DAYS = ['All', 'M', 'Tu', 'W', 'Th', 'F', 'Sa', 'Su', 'Wkdays', 'Wkends'] as const;
@@ -472,4 +481,119 @@ export async function setOneTouch(s: WebTouchSession, index: number, on: boolean
     await op.home();
     return after;
   });
+}
+
+export interface PumpSpeed {
+  /** 0..7 — the button index on screen 30 (command 17 + index). */
+  index: number;
+  label: string;
+  rpm: number | null;
+  /** The speed the pump is running at (or will run at when on). */
+  active: boolean;
+}
+
+export interface PumpSpeeds {
+  /** The panel's label for the pump's adjust entry, e.g. "VSP1 Spd". */
+  pump: string;
+  speeds: PumpSpeed[];
+}
+
+const VSP_SLOTS = 8;
+
+/** The Devices-screen button that opens the speed screen: it shows "ADJ" where others show ON/OFF. */
+const vspEntry = (st: PanelState) => [...st.buttons.entries()].find(([, b]) => b.text.trim() === 'ADJ');
+
+function pumpSpeeds(st: PanelState): PumpSpeed[] {
+  return [...Array(VSP_SLOTS).keys()]
+    .map((index) => ({ index, b: st.buttons.get(index)! }))
+    .filter(({ b }) => b.label.trim() !== '')
+    .map(({ index, b }) => ({ index, label: b.label, rpm: /^\d+$/.test(b.text.trim()) ? Number(b.text) : null, active: b.state === '1' }));
+}
+
+/** Home → Other Devices(24) → the ADJ entry → screen 30 with every speed painted. Returns the entry's label. */
+async function openPumpSpeeds(op: PanelOp): Promise<string> {
+  await op.home();
+  // The Devices list paints over ~2.5 s live; the entry is early, button 16 is the last.
+  await op.s.press(CMD.otherDevices, 'the Devices screen', (st) => st.screen === SCREEN.devices && (vspEntry(st) !== undefined || st.buttons.has(16)));
+  const entry = vspEntry(op.st);
+  if (!entry) throw new Abort('this panel has no variable-speed pump adjust entry on its Devices screen');
+  op.expect(SCREEN.devices);
+  // Live, one speed button once arrived 8 s after the screen: wait for all of them.
+  await op.s.press(CMD.button0 + entry[0], 'the pump speed screen', (st) => st.screen === SCREEN.vsp && [...Array(VSP_SLOTS).keys()].every((i) => st.buttons.has(i)));
+  return entry[1].label;
+}
+
+/** Back(5) to Devices, then Home — the way out that was exercised live. */
+async function leavePumpSpeeds(op: PanelOp): Promise<void> {
+  op.expect(SCREEN.vsp);
+  await op.s.press(CMD.back, 'the Devices screen', (st) => st.screen === SCREEN.devices);
+  await op.home();
+}
+
+function speedAt(op: PanelOp, index: number, label: string): PumpSpeed {
+  const sp = pumpSpeeds(op.st).find((x) => x.index === index);
+  if (!sp || sp.label.toLowerCase() !== label.trim().toLowerCase()) {
+    throw new Abort(`speed button ${index + 1} is "${sp?.label ?? ''}", not "${label}"`);
+  }
+  return sp;
+}
+
+async function makeActive(op: PanelOp, sp: PumpSpeed): Promise<void> {
+  if (op.st.buttons.get(sp.index)?.state === '1') return;
+  op.expect(SCREEN.vsp);
+  await op.s.press(CMD.button0 + sp.index, `"${sp.label}" to become the running speed`, (st) => st.buttons.get(sp.index)?.state === '1');
+}
+
+export async function readPumpSpeeds(s: WebTouchSession): Promise<PumpSpeeds> {
+  const op = new PanelOp(s);
+  return op.run('Reading the pump speeds', async () => {
+    const pump = await openPumpSpeeds(op);
+    const speeds = pumpSpeeds(op.st);
+    await leavePumpSpeeds(op);
+    return { pump, speeds };
+  });
+}
+
+/** Make the speed at `index` (planned as `label`) the running one, then re-read. */
+export async function selectPumpSpeed(s: WebTouchSession, index: number, label: string): Promise<PumpSpeeds> {
+  const op = new PanelOp(s);
+  await op.run('Switching the pump speed', async () => {
+    await openPumpSpeeds(op);
+    await makeActive(op, speedAt(op, index, label));
+    await leavePumpSpeeds(op);
+  });
+  return readPumpSpeeds(s);
+}
+
+/**
+ * Store `rpm` for the speed at `index`. The panel stores the keypad entry for the
+ * running speed, so a different speed is made running first and the one that was
+ * running is restored afterwards. Then re-read.
+ */
+export async function setPumpSpeedRpm(s: WebTouchSession, index: number, label: string, rpm: number): Promise<PumpSpeeds> {
+  const op = new PanelOp(s);
+  await op.run('Setting the pump speed', async () => {
+    await openPumpSpeeds(op);
+    const target = speedAt(op, index, label);
+    const was = pumpSpeeds(op.st).find((x) => x.active);
+    await makeActive(op, target);
+    try {
+      op.expect(SCREEN.vsp);
+      await s.enterText(String(rpm), 'the panel to store the speed and return to Devices', (st) => st.screen === SCREEN.devices && vspEntry(st) !== undefined);
+      if (was && was.index !== target.index) {
+        const entry = vspEntry(op.st)!;
+        await s.press(CMD.button0 + entry[0], 'the pump speed screen', (st) => st.screen === SCREEN.vsp && [...Array(VSP_SLOTS).keys()].every((i) => st.buttons.has(i)));
+        await makeActive(op, was);
+        await leavePumpSpeeds(op);
+      } else {
+        await op.home();
+      }
+    } catch (err) {
+      if (!was || was.index === target.index) throw err;
+      throw new Error(
+        `${messageOf(err)} (the pump was switched to "${target.label}" to edit it and may still be running at "${target.label}" — switch back to "${was.label}" with iaqualink_set_pump_speed)`,
+      );
+    }
+  });
+  return readPumpSpeeds(s);
 }
