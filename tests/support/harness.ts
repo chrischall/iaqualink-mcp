@@ -18,7 +18,7 @@ export async function setup(opts: { client?: IaqualinkClient; server?: FakeIaqua
       statusCacheMs: 0,
       sleep: async () => {},
     });
-  const deps: Deps = { client, timing: { iaqua: FAST, exo: FAST } };
+  const deps: Deps = { client, timing: { iaqua: FAST, exo: FAST, webtouch: { stepTimeoutMs: 300, quietMs: 3 } } };
   const h = await createTestHarness((s) => {
     for (const r of registrars) r(s, deps);
   });

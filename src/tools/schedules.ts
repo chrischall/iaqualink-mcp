@@ -2,14 +2,14 @@
  * Pool schedules.
  *
  * - `iaqualink_list_schedules` (read): eXO timers from the device shadow; on
- *   iAqua, the iQ20 schedule list — which doubles as a live PROBE, because
- *   the sources disagree on which host serves it (see SESSION_ENDPOINTS). It
+ *   iAqua, the RS panel's own programs through WebTouch (src/rs-panel.ts),
+ *   falling back to the iQ20 schedule list — a live PROBE, because the
+ *   sources disagree on which host serves it (see SESSION_ENDPOINTS). It
  *   tries each candidate once, in order, and reports which one answered and
  *   what every attempt got back (scrubbed of tokens).
- * - `iaqualink_set_schedule` (write): eXO timers only. iQ20 schedule writes
- *   (`do_schedule_operation`) are on hold, unbuilt: they reach only iQ20
- *   schedules, never an AquaLink RS panel's own programs, and no live
- *   account has confirmed the protocol yet.
+ * - `iaqualink_set_schedule` (write): eXO timers only. RS panel programs are
+ *   written through WebTouch (src/tools/panel.ts); iQ20 schedule writes
+ *   (`do_schedule_operation`) are on hold, unbuilt.
  */
 import type { McpServer, ServerContext } from '@modelcontextprotocol/server';
 import { z } from 'zod';
@@ -35,13 +35,16 @@ import {
   type ExoSchedule,
 } from '../schedules.js';
 import { execute, exoRequest, type Plan } from './control.js';
+import { readSchedules } from '../rs-panel.js';
+import { withPanel } from '../webtouch.js';
+import { showSchedule } from './panel.js';
 import { serialArg } from './read.js';
 import type { Deps } from './deps.js';
 
 type Exo = Extract<RawStatus, { kind: 'exo' }>;
 
 const RS_NOTE =
-  'The AquaLink RS panel’s own built-in programs are stored in the panel and are not reachable through the iAqualink cloud API; only iQ20 (adapter firmware ≥ 3) schedules are.';
+  'This is the iQ20 fallback: an AquaLink RS panel’s own programs are read through WebTouch, which was unavailable (see webtouchError).';
 
 /** iQ20 schedules need adapter firmware ≥ 3 — the app hides Schedules below it (IQ20Device.m:19,119; IQ20CogMenuVC.m:67-73). */
 const IQ20_MIN_FW = 3;
@@ -131,7 +134,7 @@ async function listIq20(client: IaqualinkClient, raw: Extract<RawStatus, { kind:
     schedules,
     ...(deviceListError ? { deviceListError } : {}),
     probe: { answeredBy: { id: e.id, url: e.url, auth: e.auth, source: e.source }, attempts: probe.attempts },
-    note: `Read-only: changing iQ20 schedules is not built yet. ${RS_NOTE}`,
+    note: `Read-only: changing iQ20 schedules is not built. ${RS_NOTE}`,
   };
 }
 
@@ -157,13 +160,22 @@ export function registerScheduleTools(server: McpServer, deps: Deps): void {
     'iaqualink_list_schedules',
     {
       description:
-        'List a pool system’s schedules (timers). eXO salt chlorinators: the pump, chlorinator and aux timers from the device (name, start/stop, enabled, rpm for variable-speed pumps). iAqua (Jandy iAquaLink) panels: the iQ20 schedule list (device, start/stop, days) — only on adapters with firmware 3+, and never the AquaLink RS panel’s own built-in programs, which the cloud API cannot reach. Unverified on live hardware: because sources disagree on which iAqualink host serves iQ20 schedules, this tries each candidate host once and reports which answered (`probe`), with each raw answer scrubbed of tokens. Returns `supported: false` with the reason when there are none to read.',
+        'List a pool system’s schedules (programs/timers). iAqua (Jandy AquaLink RS) panels: the panel’s own schedule — circuit, start, stop (24-hour, plus the panel’s text) and run days, with the page/row each sits at (what iaqualink_edit_schedule and iaqualink_delete_schedule identify it by) — read through iAqualink WebTouch, the panel emulation. If WebTouch is unavailable it falls back to the iQ20 schedule list (adapter firmware 3+), trying each candidate host once and reporting which answered (`probe`). eXO salt chlorinators: the pump, chlorinator and aux timers (name, start/stop, enabled, rpm for variable-speed pumps). Returns `supported: false` with the reason when there are none to read.',
       annotations: toolAnnotations({ title: 'List pool schedules', readOnly: true, openWorld: true }),
       inputSchema: z.object({ serial: serialArg }),
     },
     async ({ serial }) => {
       const raw = await client.readRawStatus(serial);
-      return minifiedResult(raw.kind === 'iaqua' ? await listIq20(client, raw) : listExo(raw));
+      if (raw.kind === 'exo') return minifiedResult(listExo(raw));
+      // An RS panel's own programs, through WebTouch; the iQ20 probe only if that is unavailable.
+      let webtouchError: string;
+      try {
+        const list = await withPanel(client, serial, deps.timing.webtouch, readSchedules);
+        return minifiedResult({ serial, type: 'iaqua', source: 'webtouch', supported: true, count: list.length, schedules: list.map(showSchedule) });
+      } catch (err) {
+        webtouchError = client.scrubText(messageOf(err), 500);
+      }
+      return minifiedResult({ ...(await listIq20(client, raw)), source: 'iq20', webtouchError });
     },
   );
 
@@ -171,7 +183,7 @@ export function registerScheduleTools(server: McpServer, deps: Deps): void {
     'iaqualink_set_schedule',
     {
       description:
-        'Change one eXO timer (pump, chlorinator or aux): set its start and stop time (24-hour HH:MM) and enable it, set rpm on a variable-speed pump timer, or disable it (enabled: false clears it to 00:00–00:00, as the app does). Identify the timer by its key (sch3), id (sch_3), name or endpoint (ssp_1) from iaqualink_list_schedules. A chlorinator timer must stay inside its pump timer’s window. eXO systems only — iAqua/iQ20 schedule changes are not supported. The eXO applies changes asynchronously; the result says whether a re-read confirmed it. Unverified on live hardware (shape from community Home Assistant integrations). ' +
+        'Change one eXO salt-chlorinator timer (pump, chlorinator or aux): set its start and stop time (24-hour HH:MM) and enable it, set rpm on a variable-speed pump timer, or disable it (enabled: false clears it to 00:00–00:00, as the app does). Identify the timer by its key (sch3), id (sch_3), name or endpoint (ssp_1) from iaqualink_list_schedules. A chlorinator timer must stay inside its pump timer’s window. eXO systems only — for a Jandy AquaLink RS panel use iaqualink_add_schedule / iaqualink_edit_schedule / iaqualink_delete_schedule. The eXO applies changes asynchronously; the result says whether a re-read confirmed it. Unverified on live hardware (shape from community Home Assistant integrations). ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Set an eXO timer', readOnly: false, destructive: false, idempotent: true, openWorld: true }),
       inputSchema: z.object({

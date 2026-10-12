@@ -17,6 +17,9 @@ async function served() {
 }
 
 const EXPECTED = [
+  'iaqualink_add_schedule',
+  'iaqualink_delete_schedule',
+  'iaqualink_edit_schedule',
   'iaqualink_get_status',
   'iaqualink_healthcheck',
   'iaqualink_list_onetouch',
@@ -80,7 +83,8 @@ describe('tool annotations', () => {
       'iaqualink_list_schedules',
       'iaqualink_list_systems',
     ]);
-    // Every control has an inverse in this tool set and reaches no other person.
-    expect(tools.filter((t) => t.annotations?.destructiveHint === true)).toEqual([]);
+    // Every control has an inverse in this tool set and reaches no other person —
+    // except deleting a panel program, which the panel stores at once with no undo.
+    expect(tools.filter((t) => t.annotations?.destructiveHint === true).map((t) => t.name)).toEqual(['iaqualink_delete_schedule']);
   });
 });

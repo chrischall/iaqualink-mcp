@@ -11,7 +11,9 @@
  *    command channel (`v2/mobile/session.json`);
  *  - `p-api.iaqualink.net` and `prm.iaqualink.net` — ALTERNATE iAqua command
  *    channels, tried only by the iQ20 schedule probe (see SESSION_ENDPOINTS):
- *    which one serves schedules is not yet known from a live account.
+ *    which one serves schedules is not yet known from a live account;
+ *  - `prm.iaqualink.net/v2` — WebTouch, the RS panel emulation (src/webtouch.ts):
+ *    location lookup, init, commands, and the panel's display stream.
  *
  * Auth is a plain server-side email/password login. Two rules matter more than
  * anything else in this file:
@@ -53,6 +55,26 @@ export const EXO_DEVICES_URL = 'https://prod.zodiac-io.com/devices/v1';
 export const P_API_SESSION_URL = 'https://p-api.iaqualink.net/v2/mobile/session.json';
 /** The iAquaLink iOS app's schedule host (krishvios/iAquaLink-Mirror@50e4182 Environment.m:313-327 + IQ20ApiManager.m:197-231). */
 export const PRM_SESSION_URL = 'https://prm.iaqualink.net/v1/mobile/session.json';
+
+/** WebTouch (RS panel emulation) — ejc3/iaqualink-webtouch@42c4d65 client.py:19-20,100-163 and the 2026-10-11 live capture. */
+export const PRM_ROOT = 'https://prm.iaqualink.net/v2';
+export const WEBTOUCH_USER_URL = `${PRM_ROOT}/userId`;
+export const WEBTOUCH_INIT_URL = `${PRM_ROOT}/webtouch/init`;
+export const WEBTOUCH_COMMAND_URL = `${PRM_ROOT}/webtouch/command`;
+/** Hosts the WebTouch display stream (init's `serverConnection`) may be on; extend with IAQUALINK_WEBTOUCH_STREAM_HOSTS. */
+export const WEBTOUCH_STREAM_HOSTS = ['prm.iaqualink.net'];
+
+/** What `webtouch/init` hands back that a session needs. */
+export interface WebTouchInit {
+  /** The display stream URL (an iframe in the browser). */
+  serverConnection: string;
+  /** actionID for button presses (`actionIdMasterId`). */
+  master: string;
+  /** actionID for the start-up press (`actionIdMasterStart`). */
+  start: string;
+  /** actionID for keypad text entry (`actionIdMasterSTB`). */
+  stb: string;
+}
 
 /** One way of reaching the iAqua session.json command channel. */
 export interface SessionEndpoint {
@@ -142,6 +164,7 @@ export class IaqualinkClient {
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly throttle: Throttle;
+  private readonly streamHosts: string[];
 
   private session: Session | undefined;
   private authInFlight: Promise<Session> | undefined;
@@ -163,6 +186,8 @@ export class IaqualinkClient {
     this.now = opts.now ?? Date.now;
     this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.throttle = createThrottle({ minIntervalMs: opts.minIntervalMs ?? 250 });
+    const extra = readEnvVar('IAQUALINK_WEBTOUCH_STREAM_HOSTS', { env }) ?? '';
+    this.streamHosts = [...WEBTOUCH_STREAM_HOSTS, ...extra.split(',').map((h) => h.trim().toLowerCase()).filter(Boolean)];
   }
 
   /** Where the credential came from — never its value. */
@@ -423,6 +448,62 @@ export class IaqualinkClient {
         body: JSON.stringify({ state: { desired } }),
       }),
     );
+  }
+
+  // ── WebTouch ──────────────────────────────────────────────────────────────
+
+  /**
+   * Find the system's WebTouch location and initialise a panel session:
+   * `GET /v2/userId` → `session_user_id`, `GET /v2/users/<id>/locations` →
+   * the location's `touchLink` (both `Authorization: Bearer <IdToken>`), then
+   * `GET /v2/webtouch/init?actionID=<touchLink>` (bare IdToken). The stream
+   * URL must be https on an allowlisted host.
+   */
+  async webtouchInit(serial: string): Promise<WebTouchInit> {
+    const bearer = (url: string) => this.withSession((s) => this.send(url, { method: 'GET', headers: { authorization: `Bearer ${s.idToken}` } }));
+    const user = (await bearer(WEBTOUCH_USER_URL)) as { session_user_id?: unknown } | null;
+    if (typeof user?.session_user_id !== 'string' && typeof user?.session_user_id !== 'number') {
+      throw new McpToolError('WebTouch: iAqualink returned no user id.', { kind: 'http' });
+    }
+    const locs = (await bearer(`${PRM_ROOT}/users/${encodeURIComponent(String(user.session_user_id))}/locations`)) as unknown;
+    const list = Array.isArray(locs) ? locs : (locs as { locations?: unknown } | null)?.locations;
+    const loc = (Array.isArray(list) ? list : []).find(
+      (l: Record<string, unknown>) => (l?.serial_number ?? l?.serial) === serial,
+    ) as Record<string, unknown> | undefined;
+    if (!loc) throw new McpToolError(`iAqualink lists no WebTouch location for ${serial}.`);
+    const touchLink = loc.touchLink ?? loc.touch_link;
+    if (typeof touchLink !== 'string' || !touchLink) throw new McpToolError(`The WebTouch location for ${serial} has no touchLink.`);
+    const init = (await this.withSession((s) =>
+      this.send(`${WEBTOUCH_INIT_URL}?${new URLSearchParams({ actionID: touchLink })}`, { method: 'GET', headers: { authorization: s.idToken } }),
+    )) as Record<string, unknown> | null;
+    const f = [init?.serverConnection, init?.actionIdMasterId, init?.actionIdMasterStart, init?.actionIdMasterSTB];
+    if (!f.every((x) => typeof x === 'string' && x !== '')) {
+      throw new McpToolError('WebTouch: unexpected init response (missing serverConnection / actionIdMaster* fields).', { kind: 'http' });
+    }
+    const [serverConnection, master, start, stb] = f as string[];
+    const u = new URL(serverConnection!);
+    if (u.protocol !== 'https:' || !this.streamHosts.includes(u.host.toLowerCase())) {
+      throw new McpToolError(`WebTouch: the display stream host ${u.protocol}//${u.host} is not on the WebTouch allowlist.`, {
+        hint: 'If iAqualink really serves the stream there, add the host to IAQUALINK_WEBTOUCH_STREAM_HOSTS (and, hosted, to mint.yaml egress).',
+      });
+    }
+    return { serverConnection: serverConnection!, master: master!, start: start!, stb: stb! };
+  }
+
+  /** Press a panel button (or, with `text`, submit the keypad). 200 with an empty body. */
+  async webtouchCommand(actionID: string, command: number, text?: string): Promise<void> {
+    const body = { actionID, command: String(command), dt: String(this.now()), ...(text !== undefined ? { text } : {}) };
+    await this.withSession((s) =>
+      this.send(WEBTOUCH_COMMAND_URL, { method: 'POST', headers: { authorization: s.idToken }, body: JSON.stringify(body) }),
+    );
+  }
+
+  /** Open the long-lived display stream. Unauthenticated (as ejc3's client does); closed via `signal`. */
+  async openWebTouchStream(url: string, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
+    const res = await this.fetchImpl(url, { method: 'GET', headers: { 'user-agent': USER_AGENT }, signal });
+    if (res.status !== 200) throw new McpToolError(`WebTouch: the display stream answered ${res.status}.`, { kind: 'http', status: res.status });
+    if (!res.body) throw new McpToolError('WebTouch: the display stream returned no body.', { kind: 'http' });
+    return res.body;
   }
 
   /** The system's raw status, cached per serial for {@link statusCacheMs} unless `fresh`. */

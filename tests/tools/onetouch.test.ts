@@ -1,31 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { FakeIaqualink } from '../support/fake-server.js';
 import { setup } from '../support/harness.js';
 
-const toggles = (server: FakeIaqualink) => server.commands().filter((c) => c.startsWith('set_onetouch'));
-
-describe('iaqualink_list_onetouch', () => {
-  it('lists the scenes with their on state', async () => {
-    const { call } = await setup();
+describe('iaqualink_list_onetouch (WebTouch screen 77)', () => {
+  it('lists the scenes, 1-based, with their state', async () => {
+    const { call, server } = await setup();
+    server.webtouch.onetouch[2] = true;
     const r = await call('iaqualink_list_onetouch', { serial: 'IAQ123' });
-    expect(r).toMatchObject({ serial: 'IAQ123', supported: true, online: true });
-    expect(r.scenes[1]).toEqual({ onetouch: '2', label: 'Spa Mode', enabled: true, on: false });
-    expect(r.scenes[3]).toMatchObject({ onetouch: '4', enabled: false });
-  });
-
-  it('says unsupported when the panel reports OneTouch disabled', async () => {
-    const server = new FakeIaqualink();
-    server.homeExtras.onetouch = 'false';
-    const { call } = await setup({ server });
-    expect(await call('iaqualink_list_onetouch', { serial: 'IAQ123' })).toMatchObject({ supported: false });
-    expect(server.commands()).not.toContain('get_onetouch');
-  });
-
-  it('reports an offline OneTouch screen', async () => {
-    const server = new FakeIaqualink();
-    server.onetouchStatus = 'Offline';
-    const { call } = await setup({ server });
-    expect(await call('iaqualink_list_onetouch', { serial: 'IAQ123' })).toMatchObject({ online: false, scenes: [], note: expect.stringMatching(/Offline/) });
+    expect(r).toMatchObject({ serial: 'IAQ123', source: 'webtouch' });
+    expect(r.scenes.slice(0, 3)).toEqual([
+      { onetouch: 1, label: 'All OFF', on: false },
+      { onetouch: 2, label: 'Spa Mode', on: false },
+      { onetouch: 3, label: 'Clean Mode', on: true },
+    ]);
   });
 
   it('is iAqua-only', async () => {
@@ -35,36 +21,50 @@ describe('iaqualink_list_onetouch', () => {
 });
 
 describe('iaqualink_set_onetouch', () => {
-  it('toggles a scene found by label and confirms it', async () => {
+  it('previews, then presses 17 + idx once and confirms from the panel', async () => {
     const { confirmed, server } = await setup();
     const { preview, result } = await confirmed('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: 'spa mode', on: true });
-    expect(JSON.stringify(preview.preview)).toContain('set_onetouch_2');
-    expect(result).toMatchObject({ status: 'confirmed', target: 'onetouch_2', previous: false, observed: true });
-    expect(toggles(server)).toEqual(['set_onetouch_2']);
+    expect(preview.status).toBe('confirmation-required');
+    expect(JSON.stringify(preview.preview)).toContain('"command":18');
+    expect(result).toMatchObject({ status: 'confirmed', target: 'Spa Mode', previous: false, observed: true });
+    expect(server.webtouch.commands.filter((c) => c.command === '18')).toHaveLength(1);
+    expect(server.webtouch.onetouch[1]).toBe(true);
   });
 
-  it('sends nothing when already in the requested state', async () => {
+  it('finds scenes by number or onetouch_<n>, and sends nothing when already in state', async () => {
     const { call, server } = await setup();
     expect((await call('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: '1', on: false })).status).toBe('unchanged');
-    expect(toggles(server)).toEqual([]);
+    expect((await call('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: 'onetouch_3', on: false })).status).toBe('unchanged');
+    expect(server.webtouch.commands.some((c) => ['17', '19'].includes(c.command) && server.webtouch.screen === 77)).toBe(false);
   });
 
-  it('reports a toggle the panel did not apply', async () => {
+  it('turns a running scene off', async () => {
     const { confirmed, server } = await setup();
-    server.iaquaIgnoresCommands = true;
-    const { result } = await confirmed('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: 'onetouch_3', on: true });
-    expect(result.status).toBe('sent-unconfirmed');
-    expect(result.note).toMatch(/toggle/);
+    server.webtouch.onetouch[2] = true;
+    const { preview, result } = await confirmed('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: 'Clean Mode', on: false });
+    expect(JSON.stringify(preview)).toMatch(/scene off/);
+    expect(result).toMatchObject({ status: 'confirmed', observed: false });
   });
 
-  it('refuses unknown or unconfigured scenes, and an offline screen', async () => {
+  it('refuses an unknown scene, listing them', async () => {
+    const { fail } = await setup();
+    expect(await fail('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: 'party', on: true })).toMatch(/2 \(Spa Mode\)/);
+  });
+
+  it('says none when the screen shows no scenes', async () => {
     const { fail, server } = await setup();
-    expect(await fail('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: '4', on: true })).toMatch(/1 \(All OFF\)/);
-    expect(await fail('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: 'party', on: true })).toMatch(/no configured OneTouch/);
-    server.onetouch = {};
+    server.webtouch.afterCommand = (c) => {
+      if (c === '3') for (let i = 0; i < 6; i++) server.webtouch.emit('24', `${i}||0||1|| ||`);
+    };
     expect(await fail('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: '1', on: true })).toMatch(/Scenes: none/);
-    server.onetouchStatus = 'Service';
-    expect(await fail('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: '1', on: true })).toMatch(/Service/);
-    expect(await fail('iaqualink_set_onetouch', { serial: 'EXO456', onetouch: '1', on: true })).toMatch(/only on iAqua/);
+  });
+
+  it('reports a scene that never changes as an abort with the panel state', async () => {
+    const { call, h, server } = await setup();
+    const preview = await call('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: '2', on: true });
+    server.webtouch.ignore.add('18');
+    const res = await h.callTool('iaqualink_set_onetouch', { serial: 'IAQ123', onetouch: '2', on: true, confirmToken: preview.confirmToken });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toMatch(/Spa Mode.* to turn on.*panel left on screen 1/);
   });
 });

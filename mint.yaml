@@ -43,6 +43,12 @@ env:
     help: >-
       Seconds a system's status read is reused before re-polling iAqualink
       (default 5; 0 disables). Writes always re-read fresh.
+  - name: IAQUALINK_WEBTOUCH_STREAM_HOSTS
+    required: false
+    help: >-
+      Extra hosts (comma-separated) the WebTouch display stream may be served
+      from. The server refuses any stream URL outside prm.iaqualink.net plus
+      this list; a host added here must also be added to egress below.
   - name: MCP_CONFIRM_MODE
     required: false
     help: >-
@@ -66,7 +72,9 @@ egress:
     - prod.zodiac-io.com
     # the system list (devices.json) and the iAqua command channel (v2/mobile/session.json)
     - r-api.iaqualink.net
-    # alternate iAqua command channels — only the iQ20 schedule probe
-    # (iaqualink_list_schedules) tries them, once each, after r-api
+    # alternate iAqua command channel — only the iQ20 schedule probe tries it
     - p-api.iaqualink.net
+    # the iQ20 probe's last candidate, AND WebTouch (RS panel emulation):
+    # /v2/userId, /v2/users/<id>/locations, /v2/webtouch/{init,command} and
+    # the display stream (the only stream host allowed by default)
     - prm.iaqualink.net

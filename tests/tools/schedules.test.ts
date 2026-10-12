@@ -7,11 +7,28 @@ const scheduleCalls = (server: FakeIaqualink) =>
   server.log.filter((r) => r.url.searchParams.get('command') === 'get_schedule_list').map((r) => `${r.url.host}|${r.headers.authorization?.startsWith('Bearer') ? 'bearer' : 'bare'}`);
 const shadowPosts = (server: FakeIaqualink) => server.log.filter((r) => r.method === 'POST' && r.url.pathname.endsWith('/shadow'));
 
-describe('iaqualink_list_schedules — iAqua iQ20 probe', () => {
-  it('falls back from the current host to the one that answers, and reports every attempt', async () => {
-    const { call, server } = await setup();
+/** A fake whose account has no WebTouch location, so list_schedules falls back to the iQ20 probe. */
+function iq20Only(): FakeIaqualink {
+  const s = new FakeIaqualink();
+  s.locations = [];
+  return s;
+}
+
+describe('iaqualink_list_schedules — iAqua via WebTouch', () => {
+  it('reads the RS panel\'s own programs', async () => {
+    const { call } = await setup();
     const r = await call('iaqualink_list_schedules', { serial: 'IAQ123' });
-    expect(r).toMatchObject({ serial: 'IAQ123', type: 'iaqua', supported: true, firmware: '3.0', count: 2, totalCount: 2, isNewScheduleAllowed: true });
+    expect(r).toMatchObject({ type: 'iaqua', source: 'webtouch', supported: true, count: 4 });
+    expect(r.schedules[1]).toEqual({ page: 1, row: 2, circuit: 'Cleaner', start: '08:00', stop: '08:30', days: 'Wkends', display: { start: '8:00 AM', stop: '8:30 AM' } });
+  });
+});
+
+describe('iaqualink_list_schedules — iAqua iQ20 probe (WebTouch unavailable)', () => {
+  it('falls back from the current host to the one that answers, and reports every attempt', async () => {
+    const { call, server } = await setup({ server: iq20Only() });
+    const r = await call('iaqualink_list_schedules', { serial: 'IAQ123' });
+    expect(r).toMatchObject({ serial: 'IAQ123', type: 'iaqua', source: 'iq20', supported: true, firmware: '3.0', count: 2, totalCount: 2, isNewScheduleAllowed: true });
+    expect(r.webtouchError).toMatch(/no WebTouch location/);
     expect(r.probe.answeredBy).toMatchObject({ id: 'p-api-v2', url: 'https://p-api.iaqualink.net/v2/mobile/session.json', auth: 'bearer' });
     expect(r.probe.attempts.map((a: any) => [a.endpoint, a.outcome, a.reason])).toEqual([
       ['r-api-v2', 'refused', 'no scheduleList (message: "unknown command")'],
@@ -29,14 +46,14 @@ describe('iaqualink_list_schedules — iAqua iQ20 probe', () => {
   });
 
   it('tries the endpoint that answered last time first', async () => {
-    const { call, server } = await setup();
+    const { call, server } = await setup({ server: iq20Only() });
     await call('iaqualink_list_schedules', { serial: 'IAQ123' });
     await call('iaqualink_list_schedules', { serial: 'IAQ123' });
     expect(scheduleCalls(server)).toEqual(['r-api.iaqualink.net|bearer', 'p-api.iaqualink.net|bearer', 'p-api.iaqualink.net|bearer']);
   });
 
   it('records a failing endpoint (status kept) and moves on, trying each exactly once', async () => {
-    const server = new FakeIaqualink();
+    const server = iq20Only();
     server.scheduleEndpoint = 'prm-v1';
     server.failNext(404, { match: /p-api.*get_schedule_list/ });
     const { call } = await setup({ server });
@@ -50,21 +67,21 @@ describe('iaqualink_list_schedules — iAqua iQ20 probe', () => {
   });
 
   it('says unsupported, with every attempt, when no endpoint answers — and forgets a stale endpoint', async () => {
-    const server = new FakeIaqualink();
+    const server = iq20Only();
     const { call } = await setup({ server });
     await call('iaqualink_list_schedules', { serial: 'IAQ123' });
     server.scheduleEndpoint = null;
     const r = await call('iaqualink_list_schedules', { serial: 'IAQ123' });
     expect(r).toMatchObject({ supported: false, probe: { answeredBy: null } });
     expect(r.probe.attempts.map((a: any) => a.endpoint)).toEqual(['p-api-v2', 'r-api-v2', 'p-api-v2-bare', 'prm-v1']);
-    expect(r.note).toMatch(/built-in programs/);
+    expect(r.note).toMatch(/WebTouch/);
     server.scheduleEndpoint = 'p-api-v2';
     const again = await call('iaqualink_list_schedules', { serial: 'IAQ123' });
     expect(again.probe.attempts[0].endpoint).toBe('r-api-v2');
   });
 
   it('reports an is_error answer as refused', async () => {
-    const server = new FakeIaqualink();
+    const server = iq20Only();
     server.scheduleEndpoint = 'r-api-v2';
     server.scheduleError = 'Schedules not supported';
     const { call } = await setup({ server });
@@ -74,7 +91,7 @@ describe('iaqualink_list_schedules — iAqua iQ20 probe', () => {
   });
 
   it('does not probe when the adapter firmware is below 3', async () => {
-    const server = new FakeIaqualink();
+    const server = iq20Only();
     server.homeExtras.attached_system_fw_version = '2.0';
     const { call } = await setup({ server });
     const r = await call('iaqualink_list_schedules', { serial: 'IAQ123' });
@@ -85,7 +102,7 @@ describe('iaqualink_list_schedules — iAqua iQ20 probe', () => {
 
   it('probes when the firmware is unknown or empty', async () => {
     for (const fw of [undefined, '']) {
-      const server = new FakeIaqualink();
+      const server = iq20Only();
       server.homeExtras = fw === undefined ? {} : { attached_system_fw_version: fw };
       const { call } = await setup({ server });
       const r = await call('iaqualink_list_schedules', { serial: 'IAQ123' });
@@ -95,7 +112,7 @@ describe('iaqualink_list_schedules — iAqua iQ20 probe', () => {
   });
 
   it('still lists schedules when the device list fails, saying why names are missing', async () => {
-    const server = new FakeIaqualink();
+    const server = iq20Only();
     server.failNext(400, { match: /get_master_device_list/, body: { message: 'nope' } });
     const { call } = await setup({ server });
     const r = await call('iaqualink_list_schedules', { serial: 'IAQ123' });
@@ -104,13 +121,13 @@ describe('iaqualink_list_schedules — iAqua iQ20 probe', () => {
   });
 
   it('stops the probe on a rate limit or a refused sign-in', async () => {
-    const server = new FakeIaqualink();
+    const server = iq20Only();
     for (let i = 0; i < 3; i++) server.failNext(429, { match: /get_schedule_list/ });
     const { fail } = await setup({ server });
     expect(await fail('iaqualink_list_schedules', { serial: 'IAQ123' })).toMatch(/rate/i);
     expect(scheduleCalls(server)).toHaveLength(3);
 
-    const bad = new FakeIaqualink();
+    const bad = iq20Only();
     const client = new IaqualinkClient({ email: 'me@example.com', password: 'wrong', fetchImpl: bad.fetch, minIntervalMs: 0, statusCacheMs: 0 });
     const s2 = await setup({ server: bad, client });
     expect(await s2.fail('iaqualink_list_schedules', { serial: 'IAQ123' })).toMatch(/rejected/);

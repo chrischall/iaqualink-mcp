@@ -167,37 +167,6 @@ export function exoShadow() {
   };
 }
 
-export interface OneTouchState {
-  status: string;
-  state: string;
-  label: string;
-}
-
-/**
- * OneTouch scenes — iaqualink-py master (eb1cf63) tests/systems/iaqua/fixtures/
- * session_get_onetouch.json, a capture from a real panel. Slot 4 is disabled
- * (`status: "0"`), which iaqualink-py drops.
- */
-export const ONETOUCH: Record<string, OneTouchState> = {
-  onetouch_1: { status: '1', state: '0', label: 'All OFF' },
-  onetouch_2: { status: '1', state: '0', label: 'Spa Mode' },
-  onetouch_3: { status: '1', state: '0', label: 'Clean Mode' },
-  onetouch_4: { status: '0', state: '0', label: 'ONETOUCH 4' },
-  onetouch_5: { status: '1', state: '0', label: 'OneTouch 5' },
-  onetouch_6: { status: '1', state: '0', label: 'Water Falls' },
-};
-
-export function onetouchScreen(scenes: Record<string, OneTouchState>, opts: { status?: string } = {}) {
-  return {
-    message: '',
-    onetouch_screen: [
-      { status: opts.status ?? 'Online' },
-      { response: "AQU='71','xx xx'" },
-      ...Object.entries(scenes).map(([k, o]) => ({ [k]: [{ status: o.status }, { state: o.state }, { label: o.label }] })),
-    ],
-  };
-}
-
 /**
  * iQ20 schedules — the field list of iaqualink-py master (eb1cf63)
  * docs/reference/systems/iaqua.md:867-900 and the iAquaLink iOS app's

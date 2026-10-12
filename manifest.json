@@ -95,19 +95,31 @@
     },
     {
       "name": "iaqualink_list_schedules",
-      "description": "List pool schedules: eXO pump/chlorinator/aux timers, or iAqua iQ20 schedules (adapter firmware 3+; probes candidate hosts and reports which answered). Not the RS panel's built-in programs."
+      "description": "List pool schedules: a Jandy AquaLink RS panel's own programs (via WebTouch, falling back to iQ20 schedules), or eXO pump/chlorinator/aux timers"
     },
     {
       "name": "iaqualink_set_schedule",
-      "description": "Set, re-time or disable an eXO timer (start/stop, rpm for variable-speed pumps), with confirmation; eXO only"
+      "description": "Set, re-time or disable an eXO salt-chlorinator timer (start/stop, rpm for variable-speed pumps), with confirmation; eXO only"
     },
     {
       "name": "iaqualink_list_onetouch",
-      "description": "List an iAqua panel's OneTouch scenes (e.g. Spa Mode, All OFF) and whether each is on"
+      "description": "List an AquaLink RS panel's OneTouch scenes (e.g. Spa Mode, All OFF) and whether each is on, via WebTouch"
     },
     {
       "name": "iaqualink_set_onetouch",
-      "description": "Turn an iAqua OneTouch scene on or off, with confirmation"
+      "description": "Turn an AquaLink RS panel's OneTouch scene on or off via WebTouch, with confirmation"
+    },
+    {
+      "name": "iaqualink_add_schedule",
+      "description": "Add a program to an AquaLink RS panel's schedule via WebTouch (circuit, start, stop, run days), with confirmation and a verified re-read"
+    },
+    {
+      "name": "iaqualink_edit_schedule",
+      "description": "Change an RS panel program's start, stop or run days via WebTouch, with confirmation and a verified re-read"
+    },
+    {
+      "name": "iaqualink_delete_schedule",
+      "description": "Delete a program from an RS panel's schedule via WebTouch (no undo), with confirmation and a verified re-read"
     }
   ],
   "compatibility": {

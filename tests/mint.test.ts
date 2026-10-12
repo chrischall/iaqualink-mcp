@@ -50,7 +50,7 @@ describe('mint.yaml', () => {
 
   it('allows exactly the hosts the client fetches', () => {
     const allow = [...section('egress').matchAll(/^\s+- ([a-z0-9.-]+)\s*$/gm)].map((m) => m[1]).sort();
-    const fetched = [client.LOGIN_URL, client.REFRESH_URL, client.DEVICES_URL, client.IAQUA_SESSION_URL, client.EXO_DEVICES_URL, client.P_API_SESSION_URL, client.PRM_SESSION_URL]
+    const fetched = [client.LOGIN_URL, client.REFRESH_URL, client.DEVICES_URL, client.IAQUA_SESSION_URL, client.EXO_DEVICES_URL, client.P_API_SESSION_URL, client.PRM_SESSION_URL, client.WEBTOUCH_USER_URL, client.WEBTOUCH_INIT_URL, client.WEBTOUCH_COMMAND_URL, ...client.WEBTOUCH_STREAM_HOSTS.map((h) => `https://${h}/`)]
       .map((u) => new URL(u).host);
     expect(allow).toEqual([...new Set(fetched)].sort());
   });

@@ -180,51 +180,6 @@ export function parseDevices(json: unknown): { online: boolean; stale: boolean; 
   return { online: true, stale: false, aux };
 }
 
-export interface OneTouchScene {
-  /** The slot number, as used in `set_onetouch_<n>`. */
-  onetouch: string;
-  name: string;
-  label: string;
-  /** `status: "0"` = the slot is not configured (iaqualink-py drops these). */
-  enabled: boolean;
-  on: boolean;
-  state: string;
-}
-
-/**
- * `get_onetouch` → the OneTouch scenes (iaqualink-py master flz/iaqualink-py@eb1cf63
- * systems/iaqua/system.py:465-508; fixture tests/systems/iaqua/fixtures/
- * session_get_onetouch.json). Rows are `{ onetouch_<n>: [{status}, {state}, {label}] }`.
- */
-export function parseOneTouch(json: unknown): { online: boolean; status: string; scenes: OneTouchScene[] } {
-  const list = rows(json, 'onetouch_screen');
-  const status = String(field(list[0], 'status') ?? '');
-  if (['Offline', 'Service', ''].includes(status)) return { online: false, status, scenes: [] };
-  const scenes: OneTouchScene[] = [];
-  for (const row of list) {
-    for (const [name, attrs] of Object.entries((row ?? {}) as Record<string, unknown>)) {
-      if (!name.startsWith('onetouch_') || !Array.isArray(attrs)) continue;
-      const flat: Record<string, string> = {};
-      for (const a of attrs) Object.assign(flat, a);
-      scenes.push({
-        onetouch: name.replace('onetouch_', ''),
-        name,
-        label: flat.label ?? titleCase(name, '_'),
-        enabled: flat.status !== '0',
-        on: flat.state === '1',
-        state: flat.state ?? '',
-      });
-    }
-  }
-  return { online: true, status, scenes };
-}
-
-/** Find a scene by number, `onetouch_<n>` name or (case-insensitive) label. */
-export function findOneTouch(scenes: OneTouchScene[], ref: string): OneTouchScene | undefined {
-  const r = ref.trim().toLowerCase();
-  return scenes.find((s) => s.onetouch === r || s.name === r || s.label.toLowerCase() === r);
-}
-
 /** Normalise a caller's aux reference ("3", "aux_3", "aux3") to the API name. */
 export function auxKey(ref: string): string {
   const m = /^(?:aux_?)?(.+)$/i.exec(ref.trim())!;

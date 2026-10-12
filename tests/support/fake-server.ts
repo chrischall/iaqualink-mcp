@@ -12,16 +12,17 @@ import {
   IQ20_MASTER_DEVICES,
   IQ20_SCHEDULES,
   LOGIN_OK,
-  ONETOUCH,
-  type OneTouchState,
+
   REFRESH_OK,
   devicesScreen,
   exoShadow,
   homeScreen,
-  onetouchScreen,
+
   type AuxState,
   type HomeState,
 } from './fixtures.js';
+
+import { FakeWebTouch, WT_INIT } from './fake-webtouch.js';
 
 export interface LoggedRequest {
   method: string;
@@ -61,8 +62,6 @@ export class FakeIaqualink {
   loginBody: Json = structuredClone(LOGIN_OK);
   /** Top-level get_home fields outside home_screen (iaqualink-py docs iaqua.md "Top-level response fields"). */
   homeExtras: Json = { onetouch: 'true', attached_system_fw_version: '3.0' };
-  onetouch: Record<string, OneTouchState> = structuredClone(ONETOUCH);
-  onetouchStatus = 'Online';
   /**
    * Which session endpoint (client SESSION_ENDPOINTS id) answers the iQ20
    * schedule/device-list commands. The others reply "unknown command" — the
@@ -74,6 +73,13 @@ export class FakeIaqualink {
   isNewScheduleAllowed = true;
   /** When set, get_schedule_list answers `is_error: true` with this response text. */
   scheduleError: string | undefined;
+
+  /** The RS panel behind WebTouch. */
+  readonly webtouch = new FakeWebTouch();
+  /** prm /v2/users/<id>/locations body. */
+  locations: unknown = [{ serial_number: 'IAQ123', name: 'Pool', touchLink: 'TOUCH-123' }];
+  /** /v2/webtouch/init body. */
+  webtouchInit: Json = structuredClone(WT_INIT);
 
   readonly log: LoggedRequest[] = [];
   private authToken = '';
@@ -116,7 +122,7 @@ export class FakeIaqualink {
       const [q] = this.queued.splice(qi, 1);
       return this.reply(q!.status, q!.body ?? { message: `status ${q!.status}` }, q!.headers);
     }
-    return this.route(method, url, headers, body);
+    return this.route(method, url, headers, body, init.signal ?? undefined);
   };
 
   private reply(status: number, body: unknown, headers: Record<string, string> = {}): Response {
@@ -131,8 +137,10 @@ export class FakeIaqualink {
     return data;
   }
 
-  private route(method: string, url: URL, headers: Record<string, string>, body: Json | undefined): Response {
+  private route(method: string, url: URL, headers: Record<string, string>, body: Json | undefined, signal?: AbortSignal): Response {
     const path = `${url.host}${url.pathname}`;
+    const wt = this.webtouchRoute(method, path, url, headers, body, signal);
+    if (wt) return wt;
     if (path === 'prod.zodiac-io.com/users/v1/login' && method === 'POST') {
       if (body?.api_key !== 'EOOEMOW4YR6QNB07' || body?.password !== this.password) {
         return this.reply(401, { message: 'Authorization Required' });
@@ -167,6 +175,25 @@ export class FakeIaqualink {
       return this.reply(200, this.shadow);
     }
     return this.reply(404, { message: 'not found' });
+  }
+
+  /** prm.iaqualink.net/v2 — the WebTouch bootstrap (ejc3/iaqualink-webtouch client.py:100-163) and the panel's command/stream. */
+  private webtouchRoute(method: string, path: string, url: URL, headers: Record<string, string>, body: Json | undefined, signal?: AbortSignal): Response | undefined {
+    const bearer = headers.authorization === `Bearer ${this.idToken}` && Boolean(this.idToken);
+    const bare = headers.authorization === this.idToken && Boolean(this.idToken);
+    if (path === 'prm.iaqualink.net/v2/userId') return bearer ? this.reply(200, { session_user_id: 'u-77' }) : this.reply(401, {});
+    if (path === 'prm.iaqualink.net/v2/users/u-77/locations') return bearer ? this.reply(200, this.locations) : this.reply(401, {});
+    if (path === 'prm.iaqualink.net/v2/webtouch/init') {
+      if (!bare) return this.reply(401, {});
+      return url.searchParams.get('actionID') === 'TOUCH-123' ? this.reply(200, this.webtouchInit) : this.reply(404, { message: 'no such location' });
+    }
+    if (path === 'prm.iaqualink.net/v2/webtouch/command' && method === 'POST') {
+      if (!bare) return this.reply(401, {});
+      this.webtouch.command(String(body!.actionID), String(body!.command), body!.text === undefined ? undefined : String(body!.text));
+      return new Response('', { status: 200 });
+    }
+    if (path === 'prm.iaqualink.net/v2/webtouch/stream') return this.webtouch.stream(signal);
+    return undefined;
   }
 
   /**
@@ -214,21 +241,13 @@ export class FakeIaqualink {
   private iaqua(q: URLSearchParams, endpoint: string): Response {
     const cmd = q.get('command') ?? '';
     const devicesBody = () => devicesScreen(this.aux, { status: this.homeStatus });
-    const onetouchBody = () => onetouchScreen(this.onetouch, { status: this.onetouchStatus });
     if (/schedule|master_device/.test(cmd)) {
       if (endpoint !== this.scheduleEndpoint) return this.reply(200, { message: 'unknown command' });
       return this.scheduleCommand(cmd);
     }
     if (cmd === 'get_home') return this.reply(200, this.homeBody());
     if (cmd === 'get_devices') return this.reply(200, devicesBody());
-    if (cmd === 'get_onetouch') return this.reply(200, onetouchBody());
     this.afterWrite?.();
-    const scene = /^set_onetouch_(\w+)$/.exec(cmd);
-    if (scene) {
-      const o = this.onetouch[`onetouch_${scene[1]}`];
-      if (o && !this.iaquaIgnoresCommands) o.state = o.state === '1' ? '0' : '1';
-      return this.reply(200, onetouchBody());
-    }
     if (this.iaquaIgnoresCommands) {
       return this.reply(200, cmd.startsWith('set_aux') || cmd === 'set_light' ? devicesBody() : this.homeBody());
     }
