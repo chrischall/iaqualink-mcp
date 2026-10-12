@@ -19,7 +19,8 @@
 | `prod.zodiac-io.com` | login, token refresh, eXO device shadow |
 | `r-api.iaqualink.net` | system list (`devices.json`), iAqua command channel |
 | `p-api.iaqualink.net` | alternate iAqua command channel — tried only by the iQ20 schedule probe |
-| `prm.iaqualink.net` | WebTouch (RS panel emulation): `/v2/userId`, `/v2/users/<id>/locations`, `/v2/webtouch/{init,command}`, and the display stream; also the iOS app's iQ20 schedule host (`/v1`, probe only) |
+| `webtouch.iaqualink.net` | the WebTouch display stream (init's `serverConnection`, e.g. `https://webtouch.iaqualink.net/5K/<id>`, seen live 2026-10-11) |
+| `prm.iaqualink.net` | WebTouch (RS panel emulation): `/v2/userId`, `/v2/users/<id>/locations`, `/v2/webtouch/{init,command}`; also the iOS app's iQ20 schedule host (`/v1`, probe only) |
 
 Every request carries `user-agent: okhttp/3.14.7` and
 `content-type: application/json` (iaqualink-py `client.py`
@@ -188,7 +189,7 @@ cloud route to an RS panel's own programs and OneTouch scenes.
    `Authorization: <IdToken>` (bare) → `{label, serverConnection,
    actionIdMasterId, actionIdMasterStart, actionIdMasterSTB,
    actionIdMasteReset, systemType}`.
-4. `GET <serverConnection>` — the display stream, unauthenticated, held open.
+4. `GET <serverConnection>` — the display stream on `webtouch.iaqualink.net` (live, 2026-10-11), unauthenticated, held open.
    **Its host is not recorded in the capture**; this server allows only
    `https://prm.iaqualink.net` unless `IAQUALINK_WEBTOUCH_STREAM_HOSTS` adds
    one, and refuses anything else before connecting.

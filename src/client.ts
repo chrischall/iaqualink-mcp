@@ -62,7 +62,8 @@ export const WEBTOUCH_USER_URL = `${PRM_ROOT}/userId`;
 export const WEBTOUCH_INIT_URL = `${PRM_ROOT}/webtouch/init`;
 export const WEBTOUCH_COMMAND_URL = `${PRM_ROOT}/webtouch/command`;
 /** Hosts the WebTouch display stream (init's `serverConnection`) may be on; extend with IAQUALINK_WEBTOUCH_STREAM_HOSTS. */
-export const WEBTOUCH_STREAM_HOSTS = ['prm.iaqualink.net'];
+// The live RS panel's stream came from webtouch.iaqualink.net (capture 2026-10-11).
+export const WEBTOUCH_STREAM_HOSTS = ['webtouch.iaqualink.net', 'prm.iaqualink.net'];
 
 /** What `webtouch/init` hands back that a session needs. */
 export interface WebTouchInit {

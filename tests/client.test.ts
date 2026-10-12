@@ -485,6 +485,12 @@ describe('IaqualinkClient — WebTouch bootstrap (ejc3/iaqualink-webtouch@42c4d6
     await expect(make(server).client.webtouchInit('IAQ123')).rejects.toThrow(/user id/);
   });
 
+  it('accepts the stream on webtouch.iaqualink.net — where the live RS panel serves it (capture 2026-10-11)', async () => {
+    const server = new FakeIaqualink();
+    server.webtouchInit = { ...server.webtouchInit, serverConnection: 'https://webtouch.iaqualink.net/5K/ABC' };
+    expect((await make(server).client.webtouchInit('IAQ123')).serverConnection).toBe('https://webtouch.iaqualink.net/5K/ABC');
+  });
+
   it('refuses a stream host that is not allowlisted, or not https', async () => {
     for (const url of ['https://evil.example.com/stream', 'http://prm.iaqualink.net/v2/webtouch/stream']) {
       const server = new FakeIaqualink();
