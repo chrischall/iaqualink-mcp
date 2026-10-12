@@ -17,6 +17,6 @@ export interface Deps {
 export const DEFAULT_TIMING: Deps['timing'] = {
   iaqua: { timeoutMs: 15_000, intervalMs: 3_000, initialDelayMs: 1_000 },
   exo: { timeoutMs: 30_000, intervalMs: 10_000, initialDelayMs: 5_000 },
-  // A panel press answers on the stream within a second or two (live capture 2026-10-11).
-  webtouch: { stepTimeoutMs: 15_000, quietMs: 750 },
+  // A press answers on the stream in 1-3 s; a list's rows follow its screen by up to ~0.9 s (live 2026-10-12).
+  webtouch: { stepTimeoutMs: 15_000, quietMs: 2_000 },
 };

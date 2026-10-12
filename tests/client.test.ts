@@ -515,6 +515,17 @@ describe('IaqualinkClient — WebTouch bootstrap (ejc3/iaqualink-webtouch@42c4d6
     ]);
   });
 
+  it('asks for an uncompressed stream, so panel updates are not held in a compressor buffer', async () => {
+    // Live 2026-10-12: with Node's default gzip/br the stream arrived in ~20 s bursts; identity was live.
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    const ac = new AbortController();
+    await client.openWebTouchStream('https://prm.iaqualink.net/v2/webtouch/stream?session=abc', ac.signal);
+    ac.abort();
+    const req = server.log.find((r) => r.url.pathname === '/v2/webtouch/stream');
+    expect(req!.headers['accept-encoding']).toBe('identity');
+  });
+
   it('opens the stream, and reports a refused one', async () => {
     const server = new FakeIaqualink();
     const { client } = make(server);

@@ -499,9 +499,13 @@ export class IaqualinkClient {
     );
   }
 
-  /** Open the long-lived display stream. Unauthenticated (as ejc3's client does); closed via `signal`. */
+  /**
+   * Open the long-lived display stream. Unauthenticated (as ejc3's client does); closed via `signal`.
+   * Uncompressed on purpose: with fetch's default gzip/br the panel's updates sat in a compressor
+   * buffer and arrived in ~20 s bursts (live 2026-10-12); identity streams them as they happen.
+   */
   async openWebTouchStream(url: string, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
-    const res = await this.fetchImpl(url, { method: 'GET', headers: { 'user-agent': USER_AGENT }, signal });
+    const res = await this.fetchImpl(url, { method: 'GET', headers: { 'user-agent': USER_AGENT, 'accept-encoding': 'identity' }, signal });
     if (res.status !== 200) throw new McpToolError(`WebTouch: the display stream answered ${res.status}.`, { kind: 'http', status: res.status });
     if (!res.body) throw new McpToolError('WebTouch: the display stream returned no body.', { kind: 'http' });
     return res.body;
