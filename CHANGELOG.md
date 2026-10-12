@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/chrischall/iaqualink-mcp/compare/v0.1.0...v0.2.0) (2026-10-12)
+
+
+### Features
+
+* **panel:** check the RS panel and control variable-speed pump speeds ([#8](https://github.com/chrischall/iaqualink-mcp/issues/8)) ([a1cfa84](https://github.com/chrischall/iaqualink-mcp/commit/a1cfa843a13c6acca982c2a89ebff23aae409989))
+* **webtouch:** read and edit RS panel schedules and OneTouch scenes ([#5](https://github.com/chrischall/iaqualink-mcp/issues/5)) ([2baa8e2](https://github.com/chrischall/iaqualink-mcp/commit/2baa8e262165459625cc90404ff06ecffe186373))
+
 ## 0.1.0 (2026-10-12)
 
 
