@@ -36,6 +36,13 @@
           "isRequired": false,
           "format": "string",
           "isSecret": false
+        },
+        {
+          "name": "IAQUALINK_WEBTOUCH_STREAM_HOSTS",
+          "description": "Extra hosts (comma-separated) the WebTouch display stream may be served from, beyond webtouch.iaqualink.net and prm.iaqualink.net. Leave unset unless a WebTouch error names a new host",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
         }
       ]
     }

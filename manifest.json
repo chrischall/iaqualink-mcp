@@ -35,7 +35,8 @@
       "env": {
         "IAQUALINK_EMAIL": "${user_config.iaqualink_email}",
         "IAQUALINK_PASSWORD": "${user_config.iaqualink_password}",
-        "IAQUALINK_STATUS_CACHE_SECONDS": "${user_config.iaqualink_status_cache_seconds}"
+        "IAQUALINK_STATUS_CACHE_SECONDS": "${user_config.iaqualink_status_cache_seconds}",
+        "IAQUALINK_WEBTOUCH_STREAM_HOSTS": "${user_config.iaqualink_webtouch_stream_hosts}"
       }
     }
   },
@@ -57,6 +58,12 @@
       "type": "string",
       "title": "Status cache (seconds)",
       "description": "Seconds a system's status read is reused before re-polling iAqualink (default 5; 0 disables)",
+      "required": false
+    },
+    "iaqualink_webtouch_stream_hosts": {
+      "type": "string",
+      "title": "Extra WebTouch stream hosts",
+      "description": "Extra hosts (comma-separated) the WebTouch display stream may be served from, beyond webtouch.iaqualink.net and prm.iaqualink.net. Leave unset unless a WebTouch error names a new host",
       "required": false
     }
   },
