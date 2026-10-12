@@ -238,7 +238,8 @@ export class IaqualinkClient {
       });
       return this.applyTokens(data, '');
     } catch (err) {
-      if (err instanceof AuthExpired) {
+      // A login 403 is a refusal too — latch it like a 401 so it is never retried.
+      if (err instanceof AuthExpired || (err instanceof McpToolError && err.status === 403)) {
         this.loginRefusal = new McpToolError('iAqualink rejected the email/password.', {
           kind: 'credential_rejected',
           status: err.status,

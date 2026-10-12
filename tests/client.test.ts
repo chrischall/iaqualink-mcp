@@ -165,6 +165,17 @@ describe('IaqualinkClient — auth', () => {
     expect(server.count('/users/v1/login')).toBe(1);
   });
 
+  it('latches a login 403 the same as a 401', async () => {
+    const { client } = make(server);
+    server.failNext(403, { match: /login/ });
+    const first = (await client.listSystems().catch((e: unknown) => e)) as McpToolError;
+    expect(first.kind).toBe('credential_rejected');
+    expect(first.status).toBe(403);
+    const second = (await client.listSystems().catch((e: unknown) => e)) as McpToolError;
+    expect(second.kind).toBe('credential_rejected');
+    expect(server.count('/users/v1/login')).toBe(1);
+  });
+
   it('surfaces a login 5xx as unreachable, without latching', async () => {
     const { client } = make(server);
     server.failNext(503, { match: /login/ });
