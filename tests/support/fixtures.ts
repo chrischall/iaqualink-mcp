@@ -147,10 +147,71 @@ export function exoShadow() {
           },
         },
         heating: { sp_min: 1, sp_max: 40, sp: 28, enabled: 0, state: 0 },
-        schedules: { supported: 6, programmed: 0 },
+        // iaqualink-py master (eb1cf63) tests/systems/exo/fixtures/shadow_get.json
+        // `schedules`, trimmed — except sch4, made a variable-speed pump
+        // (vsp_2 + rpm) per dje2912/ha-iaqualink_exoiq@85bb2dd
+        // systems/exo/system.py:315-322 so the rpm path has data.
+        schedules: {
+          sch1: { id: 'sch_1', name: 'Salt Water Chlorinator 1', timer: { end: '16:00', start: '10:00' }, active: 0, enabled: 1, endpoint: 'swc_1' },
+          sch2: { id: 'sch_2', name: 'Salt Water Chlorinator 2', timer: { end: '00:00', start: '00:00' }, active: 0, enabled: 0, endpoint: 'swc_2' },
+          sch3: { id: 'sch_3', name: 'Filter Pump 1', timer: { end: '18:00', start: '08:00' }, active: 1, enabled: 1, endpoint: 'ssp_1' },
+          sch4: { id: 'sch_4', name: 'Filter Pump 2', timer: { end: '00:00', start: '00:00' }, active: 0, enabled: 0, endpoint: 'vsp_2', rpm: 1750 },
+          sch9: { id: 'sch_9', name: 'Aux 1', timer: { end: '00:00', start: '00:00' }, active: 0, enabled: 0, endpoint: 'aux1' },
+          supported: 6,
+          programmed: 2,
+        },
       },
     },
     deviceId: '123',
     ts: 123,
   };
 }
+
+export interface OneTouchState {
+  status: string;
+  state: string;
+  label: string;
+}
+
+/**
+ * OneTouch scenes — iaqualink-py master (eb1cf63) tests/systems/iaqua/fixtures/
+ * session_get_onetouch.json, a capture from a real panel. Slot 4 is disabled
+ * (`status: "0"`), which iaqualink-py drops.
+ */
+export const ONETOUCH: Record<string, OneTouchState> = {
+  onetouch_1: { status: '1', state: '0', label: 'All OFF' },
+  onetouch_2: { status: '1', state: '0', label: 'Spa Mode' },
+  onetouch_3: { status: '1', state: '0', label: 'Clean Mode' },
+  onetouch_4: { status: '0', state: '0', label: 'ONETOUCH 4' },
+  onetouch_5: { status: '1', state: '0', label: 'OneTouch 5' },
+  onetouch_6: { status: '1', state: '0', label: 'Water Falls' },
+};
+
+export function onetouchScreen(scenes: Record<string, OneTouchState>, opts: { status?: string } = {}) {
+  return {
+    message: '',
+    onetouch_screen: [
+      { status: opts.status ?? 'Online' },
+      { response: "AQU='71','xx xx'" },
+      ...Object.entries(scenes).map(([k, o]) => ({ [k]: [{ status: o.status }, { state: o.state }, { label: o.label }] })),
+    ],
+  };
+}
+
+/**
+ * iQ20 schedules — the field list of iaqualink-py master (eb1cf63)
+ * docs/reference/systems/iaqua.md:867-900 and the iAquaLink iOS app's
+ * IQ20Equipment.m:70-95 (krishvios/iAquaLink-Mirror@50e4182). NOT a capture:
+ * no live get_schedule_list response has been published.
+ */
+export const IQ20_SCHEDULES = [
+  { id: 1, deviceId: 2, startHrs: 9, startMins: 0, stopHrs: 17, stopMins: 0, scheduleDays: 'AllDays', vspId: 0 },
+  { id: 2, deviceId: 5, startHrs: 19, startMins: 30, stopHrs: 22, stopMins: 5, scheduleDays: 'Weekends', vspId: 0 },
+];
+
+/** get_master_device_list deviceList (iaqua.md:925-945). Device 5 is absent on purpose (unresolvable name). */
+export const IQ20_MASTER_DEVICES = [
+  { id: 1, name: 'Filter Pump', isVSP: 'false' },
+  { id: 2, name: 'Pool Light', isVSP: 'false' },
+  { id: 3, name: 'Cleaner', isVSP: 'false' },
+];

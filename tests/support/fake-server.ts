@@ -9,11 +9,16 @@ import {
   DEVICES,
   IAQUA_AUX,
   IAQUA_HOME_STATE,
+  IQ20_MASTER_DEVICES,
+  IQ20_SCHEDULES,
   LOGIN_OK,
+  ONETOUCH,
+  type OneTouchState,
   REFRESH_OK,
   devicesScreen,
   exoShadow,
   homeScreen,
+  onetouchScreen,
   type AuxState,
   type HomeState,
 } from './fixtures.js';
@@ -54,6 +59,21 @@ export class FakeIaqualink {
   afterWrite: (() => void) | undefined;
   /** Login-response override (e.g. to drop the RefreshToken). */
   loginBody: Json = structuredClone(LOGIN_OK);
+  /** Top-level get_home fields outside home_screen (iaqualink-py docs iaqua.md "Top-level response fields"). */
+  homeExtras: Json = { onetouch: 'true', attached_system_fw_version: '3.0' };
+  onetouch: Record<string, OneTouchState> = structuredClone(ONETOUCH);
+  onetouchStatus = 'Online';
+  /**
+   * Which session endpoint (client SESSION_ENDPOINTS id) answers the iQ20
+   * schedule/device-list commands. The others reply "unknown command" — the
+   * live answer is not known yet, which is why the client probes.
+   */
+  scheduleEndpoint: string | null = 'p-api-v2';
+  schedules: Json[] = structuredClone(IQ20_SCHEDULES);
+  masterDevices: Json[] = structuredClone(IQ20_MASTER_DEVICES);
+  isNewScheduleAllowed = true;
+  /** When set, get_schedule_list answers `is_error: true` with this response text. */
+  scheduleError: string | undefined;
 
   readonly log: LoggedRequest[] = [];
   private authToken = '';
@@ -129,11 +149,12 @@ export class FakeIaqualink {
       }
       return this.reply(200, this.devices);
     }
-    if (path === 'r-api.iaqualink.net/v2/mobile/session.json') {
-      if (headers.authorization !== `Bearer ${this.idToken}` || url.searchParams.get('sessionID') !== this.sessionId) {
+    const endpoint = this.sessionEndpoint(path, headers.authorization);
+    if (endpoint !== undefined) {
+      if (!endpoint || url.searchParams.get('sessionID') !== this.sessionId) {
         return this.reply(401, { message: 'Unauthorized' });
       }
-      return this.iaqua(url.searchParams);
+      return this.iaqua(url.searchParams, endpoint);
     }
     const shadow = /^prod\.zodiac-io\.com\/devices\/v1\/([^/]+)\/shadow$/.exec(path);
     if (shadow) {
@@ -148,16 +169,66 @@ export class FakeIaqualink {
     return this.reply(404, { message: 'not found' });
   }
 
-  private homeBody() {
-    return homeScreen(this.home, { status: this.homeStatus, scale: this.scale });
+  /**
+   * The session endpoint a request reached: its client id, '' when the token
+   * is wrong for it, undefined when the path is not a session endpoint.
+   */
+  private sessionEndpoint(path: string, auth: string | undefined): string | undefined {
+    const bearer = auth === `Bearer ${this.idToken}`;
+    const bare = auth === this.idToken;
+    if (path === 'r-api.iaqualink.net/v2/mobile/session.json') return bearer ? 'r-api-v2' : '';
+    if (path === 'p-api.iaqualink.net/v2/mobile/session.json') return bearer ? 'p-api-v2' : bare ? 'p-api-v2-bare' : '';
+    if (path === 'prm.iaqualink.net/v1/mobile/session.json') return bare ? 'prm-v1' : '';
+    return undefined;
   }
 
-  private iaqua(q: URLSearchParams): Response {
+  private homeBody() {
+    return { ...this.homeExtras, ...homeScreen(this.home, { status: this.homeStatus, scale: this.scale }) };
+  }
+
+  private scheduleBody(): Json {
+    if (this.scheduleError !== undefined) {
+      return { is_error: true, response: this.scheduleError, count: 0, totalCount: 0, scheduleList: [] };
+    }
+    return {
+      serial: 'IAQ123',
+      device_status: 'online',
+      is_error: false,
+      count: this.schedules.length,
+      totalCount: this.schedules.length,
+      pageNum: 1,
+      isNewScheduleAllowed: this.isNewScheduleAllowed,
+      scheduleList: this.schedules,
+      response: 'success',
+    };
+  }
+
+  private scheduleCommand(cmd: string): Response {
+    if (cmd === 'get_master_device_list') {
+      const list = this.masterDevices;
+      return this.reply(200, { is_error: false, count: list.length, totalCount: list.length, listType: 1, pageNum: 1, deviceList: list, response: 'success' });
+    }
+    return this.reply(200, this.scheduleBody());
+  }
+
+  private iaqua(q: URLSearchParams, endpoint: string): Response {
     const cmd = q.get('command') ?? '';
     const devicesBody = () => devicesScreen(this.aux, { status: this.homeStatus });
+    const onetouchBody = () => onetouchScreen(this.onetouch, { status: this.onetouchStatus });
+    if (/schedule|master_device/.test(cmd)) {
+      if (endpoint !== this.scheduleEndpoint) return this.reply(200, { message: 'unknown command' });
+      return this.scheduleCommand(cmd);
+    }
     if (cmd === 'get_home') return this.reply(200, this.homeBody());
     if (cmd === 'get_devices') return this.reply(200, devicesBody());
+    if (cmd === 'get_onetouch') return this.reply(200, onetouchBody());
     this.afterWrite?.();
+    const scene = /^set_onetouch_(\w+)$/.exec(cmd);
+    if (scene) {
+      const o = this.onetouch[`onetouch_${scene[1]}`];
+      if (o && !this.iaquaIgnoresCommands) o.state = o.state === '1' ? '0' : '1';
+      return this.reply(200, onetouchBody());
+    }
     if (this.iaquaIgnoresCommands) {
       return this.reply(200, cmd.startsWith('set_aux') || cmd === 'set_light' ? devicesBody() : this.homeBody());
     }

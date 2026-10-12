@@ -387,3 +387,53 @@ describe('IaqualinkClient — remaining paths', () => {
     await expect(client.listSystems()).rejects.toBeInstanceOf(UnreachableError);
   });
 });
+
+describe('IaqualinkClient — alternate session endpoints (schedule probe)', () => {
+  it('lists the candidates in the documented order, current endpoint first', async () => {
+    const { SESSION_ENDPOINTS, IAQUA_SESSION_URL, P_API_SESSION_URL, PRM_SESSION_URL } = await import('../src/client.js');
+    expect(SESSION_ENDPOINTS.map((e) => [e.id, e.url, e.auth])).toEqual([
+      ['r-api-v2', IAQUA_SESSION_URL, 'bearer'],
+      ['p-api-v2', P_API_SESSION_URL, 'bearer'],
+      ['p-api-v2-bare', P_API_SESSION_URL, 'bare'],
+      ['prm-v1', PRM_SESSION_URL, 'bare'],
+    ]);
+  });
+
+  it('sends the Bearer or bare id token per endpoint, with the api_key header', async () => {
+    const { SESSION_ENDPOINTS } = await import('../src/client.js');
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    for (const e of SESSION_ENDPOINTS) await client.iaquaCommand('IAQ123', 'get_home', {}, e);
+    const sent = server.log.filter((r) => r.url.pathname.endsWith('/session.json'));
+    expect(sent.map((r) => [r.url.host, r.url.pathname, r.headers.authorization, r.headers.api_key])).toEqual([
+      ['r-api.iaqualink.net', '/v2/mobile/session.json', 'Bearer id-tok-1', API_KEY],
+      ['p-api.iaqualink.net', '/v2/mobile/session.json', 'Bearer id-tok-1', API_KEY],
+      ['p-api.iaqualink.net', '/v2/mobile/session.json', 'id-tok-1', API_KEY],
+      ['prm.iaqualink.net', '/v1/mobile/session.json', 'id-tok-1', API_KEY],
+    ]);
+  });
+
+  it('never re-authenticates on a 401 from an alternate endpoint (reports it instead)', async () => {
+    const { SESSION_ENDPOINTS } = await import('../src/client.js');
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    await client.listSystems();
+    server.failNext(401, { match: /p-api/ });
+    const err = await client.iaquaCommand('IAQ123', 'get_home', {}, SESSION_ENDPOINTS[1]).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(McpToolError);
+    expect((err as McpToolError).status).toBe(401);
+    expect((err as McpToolError).kind).toBe('http');
+    expect(server.count('/users/v1/')).toBe(1);
+  });
+
+  it('scrubs the password and every session token out of text it reports', async () => {
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    expect(client.scrubText('before sign-in')).toBe('before sign-in');
+    await client.listSystems();
+    const text = `sess-1 auth-tok id-tok-1 refresh-tok ${server.password} user-123 ok`;
+    const out = client.scrubText(text);
+    for (const secret of ['sess-1', 'auth-tok', 'id-tok-1', 'refresh-tok', server.password]) expect(out).not.toContain(secret);
+    expect(out).toMatch(/ok$/);
+  });
+});

@@ -66,3 +66,7 @@ egress:
     - prod.zodiac-io.com
     # the system list (devices.json) and the iAqua command channel (v2/mobile/session.json)
     - r-api.iaqualink.net
+    # alternate iAqua command channels — only the iQ20 schedule probe
+    # (iaqualink_list_schedules) tries them, once each, after r-api
+    - p-api.iaqualink.net
+    - prm.iaqualink.net

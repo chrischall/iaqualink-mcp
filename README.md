@@ -32,9 +32,23 @@ own discretion.
 | `iaqualink_set_light` | Dimmable brightness (0/25/50/75/100) or color effect (iAqua) | write, not destructive |
 | `iaqualink_set_temperature` | Pool and/or spa set point (iAqua °F/°C; eXO °C pool) | write, not destructive |
 | `iaqualink_set_chlorinator` | eXO chlorinator output % — **inferred shape, not in iaqualink-py** | write, not destructive |
+| `iaqualink_list_schedules` | eXO timers; iAqua iQ20 schedules (adapter fw ≥ 3) — **also a live probe of which host serves them** | read |
+| `iaqualink_set_schedule` | Set / re-time / disable an eXO timer (start–stop, rpm on variable-speed pumps) — **eXO only, unverified live** | write, not destructive |
+| `iaqualink_list_onetouch` | iAqua OneTouch scenes (Spa Mode, All OFF, …) and their state | read |
+| `iaqualink_set_onetouch` | Turn a OneTouch scene on/off — **unverified live** | write, not destructive |
 
 Every write has an inverse in this set and reaches no other person, so none is
 marked destructive.
+
+**Schedules.** iAqua schedules are read only, and only the iQ20 kind (an
+iAquaLink adapter on firmware 3+). An **AquaLink RS panel's own built-in
+programs are not reachable through the iAqualink cloud API** and are not
+listed. Because the sources disagree on which host serves iQ20 schedules,
+`iaqualink_list_schedules` tries each candidate once, in order —
+`r-api.iaqualink.net/v2` (Bearer), `p-api.iaqualink.net/v2` (Bearer),
+`p-api.iaqualink.net/v2` (bare token), `prm.iaqualink.net/v1` (bare token) —
+remembers the one that answered, and reports every attempt (bodies scrubbed of
+tokens). iQ20 schedule *writes* are on hold.
 
 **How a write works.** It reads the current state first and sends nothing if
 it already matches — iAqua's pump/heater/aux commands are *toggles*, so a blind
@@ -71,7 +85,9 @@ Claude Code: `claude mcp add iaqualink -e IAQUALINK_EMAIL=… -e IAQUALINK_PASSW
 
 `mint.yaml` declares per-user children with an email/password form on the
 connector's authorize page (each person signs in as themselves), egress to
-exactly `prod.zodiac-io.com` and `r-api.iaqualink.net`, and no persistent
+exactly `prod.zodiac-io.com`, `r-api.iaqualink.net`, and the two alternate
+command hosts only the schedule probe tries (`p-api.iaqualink.net`,
+`prm.iaqualink.net`), and no persistent
 state — the session lives in memory and one sign-in rebuilds it after a cold
 start.
 

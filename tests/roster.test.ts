@@ -19,11 +19,15 @@ async function served() {
 const EXPECTED = [
   'iaqualink_get_status',
   'iaqualink_healthcheck',
+  'iaqualink_list_onetouch',
+  'iaqualink_list_schedules',
   'iaqualink_list_systems',
   'iaqualink_set_aux',
   'iaqualink_set_chlorinator',
   'iaqualink_set_equipment',
   'iaqualink_set_light',
+  'iaqualink_set_onetouch',
+  'iaqualink_set_schedule',
   'iaqualink_set_temperature',
 ];
 
@@ -72,6 +76,8 @@ describe('tool annotations', () => {
     expect(tools.filter((t) => t.annotations?.readOnlyHint === true).map((t) => t.name).sort()).toEqual([
       'iaqualink_get_status',
       'iaqualink_healthcheck',
+      'iaqualink_list_onetouch',
+      'iaqualink_list_schedules',
       'iaqualink_list_systems',
     ]);
     // Every control has an inverse in this tool set and reaches no other person.

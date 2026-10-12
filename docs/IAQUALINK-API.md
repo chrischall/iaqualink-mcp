@@ -18,6 +18,8 @@
 | --- | --- |
 | `prod.zodiac-io.com` | login, token refresh, eXO device shadow |
 | `r-api.iaqualink.net` | system list (`devices.json`), iAqua command channel |
+| `p-api.iaqualink.net` | alternate iAqua command channel — tried only by the iQ20 schedule probe |
+| `prm.iaqualink.net` | the iOS app's schedule host — tried only by the iQ20 schedule probe |
 
 Every request carries `user-agent: okhttp/3.14.7` and
 `content-type: application/json` (iaqualink-py `client.py`
@@ -164,6 +166,82 @@ as-is.
 The device applies desired state asynchronously, so a write is proven only by
 a later `reported` read; this server re-reads (every 10 s, up to 30 s) and
 reports `sent-unconfirmed` rather than failing when it has not landed yet.
+
+## OneTouch scenes (iAqua) — UNVERIFIED live
+
+Source: iaqualink-py master, flz/iaqualink-py@eb1cf63e5ea8.
+
+- Read: `command=get_onetouch` on the session channel
+  (`systems/iaqua/system.py:150-151`). Body (`tests/systems/iaqua/fixtures/
+  session_get_onetouch.json`, a real-panel capture):
+  `{"onetouch_screen":[{"status":"Online"},{"response":"…"},{"onetouch_1":[{"status":"1"},{"state":"0"},{"label":"All OFF"}]},…]}`.
+  Slot `status: "0"` = not configured (dropped, `system.py:494-496`);
+  `state: "1"` = on. A screen `status` of Offline / Service / empty means no
+  data (`system.py:473-485`).
+- Whether to fetch it: `get_home`'s top-level `onetouch` is `"true"`
+  (`system.py:217`). This server reads it unless the flag is exactly `"false"`.
+- Write: `command=set_onetouch_<n>`, no params, a TOGGLE (`system.py:510-513`,
+  `device.py:141-145`). iaqualink-py's own notes
+  (`docs/reference/systems/iaqua.md:1293`) say the command string was NOT
+  found in their protocol analysis — treat it as unverified.
+
+## Schedules
+
+### iQ20 (iAqua) — read only here, UNVERIFIED live
+
+Only adapters with `attached_system_fw_version` ≥ 3 (top-level in `get_home`)
+have them — the app hides Schedules otherwise
+(krishvios/iAquaLink-Mirror@50e4182 `Shared/Shared/Models/IQ20Device.m:19,119`,
+`iAqualink/.../IQ20CogMenuVC.m:67-73`). An **AquaLink RS panel's own
+built-in programs are a different thing that no cloud API reaches.**
+
+- List: `command=get_schedule_list&pageNum=1` →
+  `{is_error, count, totalCount, pageNum, isNewScheduleAllowed, scheduleList:[{id, deviceId, startHrs, startMins, stopHrs, stopMins, scheduleDays, vspId}]}`
+  (`Shared/Shared/Managers/IQ20ApiManager.m:197-231`,
+  `Shared/Shared/Models/IQ20Equipment.m:70-95`; iaqualink-py master
+  `docs/reference/systems/iaqua.md:867-900`). Only page 1 is read; the result
+  shows `count` and `totalCount`.
+- Device names: `command=get_master_device_list&listType=1&pageNum=1` →
+  `deviceList:[{id, name, isVSP}]` (`IQ20ApiManager.m:232-262`;
+  `iaqua.md:925-945`).
+- Days: the app's picker sends `AllDays`, `Weekdays`, `Weekends` or a weekday
+  name (`IQ20ScheduleSetupViewController.m:106`) — but LOCALIZED; iaqualink-py
+  writes "All Days". Unconfirmed.
+- Writes (`do_schedule_operation&operation=Add|Edit|Delete…`,
+  `IQ20ApiManager.m:151-195`; `iaqua.md:902-919`) are **not built** — on hold.
+
+**Which host serves them is unknown.** The sources disagree:
+
+| Probe order | Endpoint | Authorization | Source |
+| --- | --- | --- | --- |
+| 1 | `r-api.iaqualink.net/v2/mobile/session.json` | `Bearer <IdToken>` | this server's channel (iaqualink-py 0.7.0) |
+| 2 | `p-api.iaqualink.net/v2/mobile/session.json` | `Bearer <IdToken>` | iaqualink-py master `system.py:45,129-131` |
+| 3 | `p-api.iaqualink.net/v2/mobile/session.json` | `<IdToken>` (bare) | iaqualink-py master `docs/reference/systems/iaqua.md:19-27` |
+| 4 | `prm.iaqualink.net/v1/mobile/session.json` | `<IdToken>` (bare) | iOS app `Environment.m:313-327`, `AuthenticatedConnection.m:60-63` |
+
+All carry `api_key` and `sessionID`. `iaqualink_list_schedules` tries them in
+that order (the one that last answered goes first), each once, stopping at the
+first body with a `scheduleList`; a 429 or a refused sign-in stops the probe.
+A 401 from endpoints 2-4 is recorded, never answered with a re-login. The
+result's `probe` names the endpoint that answered and every attempt's
+(token-scrubbed) body — that is the live check.
+
+### eXO timers — UNVERIFIED live
+
+Read from the shadow: `state.reported.schedules.schN` =
+`{id, name, endpoint, enabled, active, timer:{start, end}, rpm?}` plus
+`supported` / `programmed` counters (iaqualink-py master
+`tests/systems/exo/fixtures/shadow_get.json`;
+dje2912/ha-iaqualink_exoiq@85bb2dd `systems/exo/system.py:287-340`).
+
+Write: `POST` shadow `{"state":{"desired":{"schedules":{"schN":{"enabled":1,"timer":{"start":"HH:MM","end":"HH:MM"},"rpm":N}}}}}`
+— `rpm` only for `vsp_*` endpoints (benjycov/exo_pool@64b8806 `api.py:1173-1219`,
+`759-767`; dje2912 `system.py:514-548`). Disable =
+`{"enabled":0,"timer":{"start":"00:00","end":"00:00"}}` (dje2912
+`system.py:913-946`). A chlorinator timer `swc_N` must be inside, and may only
+be enabled with, the same-index pump timer `vsp_N` / `ssp_N` (dje2912
+`system.py:780-836, 868-895`; endpoint pairing in `timer_helpers.py:6-23`);
+this server refuses writes that break that.
 
 ## Rate limiting
 

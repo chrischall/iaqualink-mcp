@@ -1,6 +1,6 @@
 ---
 name: iaqualink
-description: Check and control an iAqualink (Zodiac / Jandy iAquaLink / Fluidra) pool or spa through the iaqualink-mcp tools — pool, spa and air temperatures, heater set points, pumps, heaters, lights, aux circuits (cleaner, waterfall, bubbler), salt chlorinator output, salinity, pH and ORP. Use when the user asks "what's the pool temperature", "is the pool pump running", "turn on the spa", "heat the spa to 102", "turn on the pool lights", "set the pool light to Caribbean Blue", "boost the chlorinator", or anything about their iAqualink / iAquaLink / eXO system.
+description: Check and control an iAqualink (Zodiac / Jandy iAquaLink / Fluidra) pool or spa through the iaqualink-mcp tools — pool, spa and air temperatures, heater set points, pumps, heaters, lights, aux circuits (cleaner, waterfall, bubbler), salt chlorinator output, salinity, pH and ORP, schedules/timers and OneTouch scenes. Use when the user asks "what's the pool temperature", "is the pool pump running", "turn on the spa", "heat the spa to 102", "turn on the pool lights", "set the pool light to Caribbean Blue", "boost the chlorinator", "what are the pool schedules", "run Spa Mode", or anything about their iAqualink / iAquaLink / eXO system.
 ---
 
 # iAqualink (iaqualink-mcp)
@@ -40,6 +40,8 @@ temperature while the spa pump is off.
 | dimmable light level (0/25/50/75/100) or color effect | `iaqualink_set_light { serial, aux, brightness \| effect }` |
 | pool and/or spa target temperature | `iaqualink_set_temperature { serial, pool?, spa? }` |
 | eXO chlorinator output % | `iaqualink_set_chlorinator { serial, percent }` |
+| run / stop a OneTouch scene (iAqua) | `iaqualink_set_onetouch { serial, onetouch, on }` |
+| change or disable an eXO timer | `iaqualink_set_schedule { serial, schedule, start, stop, rpm?, enabled? }` |
 
 Every write:
 
@@ -64,6 +66,21 @@ Notes:
   confirmed only by the light being on.
 - `iaqualink_set_chlorinator` uses an inferred request shape (not in the
   reference client) — trust it only when the result is `confirmed`.
+
+## Schedules and scenes
+
+- `iaqualink_list_schedules { serial }` — eXO: pump / chlorinator / aux timers.
+  iAqua: iQ20 schedules only (adapter firmware 3+). `supported: false` comes
+  with the reason. An **AquaLink RS panel's own programs cannot be read or
+  changed** through these tools — say so rather than guessing. On iAqua the
+  result's `probe` shows which iAqualink host answered; pass it on verbatim
+  if the user is debugging.
+- iAqua schedules cannot be changed here. eXO timers can
+  (`iaqualink_set_schedule`); a chlorinator timer must sit inside its pump
+  timer's window, and `enabled: false` clears a timer.
+- `iaqualink_list_onetouch` / `iaqualink_set_onetouch` — the panel's
+  one-button scenes ("Spa Mode", "All OFF"). Scene switching is a toggle and
+  is unverified live: report `sent-unconfirmed` honestly.
 
 ## Trouble
 

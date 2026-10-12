@@ -4,11 +4,14 @@
  * Every endpoint, header and body here is transcribed from iaqualink-py 0.7.0
  * — the open-source client Home Assistant's integration uses — and is NOT yet
  * verified against a live account (docs/IAQUALINK-API.md records provenance
- * line by line). Three hosts are involved:
+ * line by line). The hosts involved:
  *
  *  - `prod.zodiac-io.com` — login, token refresh, and the eXO device shadow;
  *  - `r-api.iaqualink.net` — the system list (`devices.json`) and the iAqua
- *    command channel (`v2/mobile/session.json`).
+ *    command channel (`v2/mobile/session.json`);
+ *  - `p-api.iaqualink.net` and `prm.iaqualink.net` — ALTERNATE iAqua command
+ *    channels, tried only by the iQ20 schedule probe (see SESSION_ENDPOINTS):
+ *    which one serves schedules is not yet known from a live account.
  *
  * Auth is a plain server-side email/password login. Two rules matter more than
  * anything else in this file:
@@ -46,6 +49,32 @@ export const REFRESH_URL = 'https://prod.zodiac-io.com/users/v1/refresh';
 export const DEVICES_URL = 'https://r-api.iaqualink.net/devices.json';
 export const IAQUA_SESSION_URL = 'https://r-api.iaqualink.net/v2/mobile/session.json';
 export const EXO_DEVICES_URL = 'https://prod.zodiac-io.com/devices/v1';
+/** iaqualink-py master (eb1cf63) systems/iaqua/system.py:45 — its session URL since it moved off r-api. */
+export const P_API_SESSION_URL = 'https://p-api.iaqualink.net/v2/mobile/session.json';
+/** The iAquaLink iOS app's schedule host (krishvios/iAquaLink-Mirror@50e4182 Environment.m:313-327 + IQ20ApiManager.m:197-231). */
+export const PRM_SESSION_URL = 'https://prm.iaqualink.net/v1/mobile/session.json';
+
+/** One way of reaching the iAqua session.json command channel. */
+export interface SessionEndpoint {
+  id: string;
+  url: string;
+  /** `bearer` = `Authorization: Bearer <IdToken>`; `bare` = `Authorization: <IdToken>`. */
+  auth: 'bearer' | 'bare';
+  source: string;
+}
+
+/**
+ * The candidate command channels, in the order the iQ20 schedule probe tries
+ * them (each once). The first is the channel every other command uses; the
+ * rest differ in host, API version and Authorization style, and come from
+ * sources that disagree with each other (docs/IAQUALINK-API.md "Schedules").
+ */
+export const SESSION_ENDPOINTS: readonly SessionEndpoint[] = [
+  { id: 'r-api-v2', url: IAQUA_SESSION_URL, auth: 'bearer', source: 'this server\'s iAqua channel (iaqualink-py 0.7.0)' },
+  { id: 'p-api-v2', url: P_API_SESSION_URL, auth: 'bearer', source: 'iaqualink-py master system.py:45,129-131' },
+  { id: 'p-api-v2-bare', url: P_API_SESSION_URL, auth: 'bare', source: 'iaqualink-py master docs/reference/systems/iaqua.md:19-27' },
+  { id: 'prm-v1', url: PRM_SESSION_URL, auth: 'bare', source: 'iAquaLink iOS app 2022 (Environment.m:313-327, AuthenticatedConnection.m:60-63)' },
+];
 
 const USER_AGENT = 'okhttp/3.14.7';
 const SERVICE = 'iAqualink';
@@ -283,12 +312,17 @@ export class IaqualinkClient {
    * Run an authenticated request, re-authenticating ONCE on a 401. A second
    * 401 after a fresh session is reported, never retried again.
    */
-  private async withSession<T>(call: (s: Session) => Promise<T>): Promise<T> {
+  private async withSession<T>(call: (s: Session) => Promise<T>, opts: { reauth?: boolean } = {}): Promise<T> {
     const session = this.session ?? (await this.authenticate());
     try {
       return await call(session);
     } catch (err) {
       if (!(err instanceof AuthExpired)) throw err;
+      // An alternate endpoint refusing a session the primary accepts says
+      // nothing about the session — report it rather than re-authenticating.
+      if (opts.reauth === false) {
+        throw new McpToolError(`iAqualink answered ${err.status} on this endpoint.`, { kind: 'http', status: err.status });
+      }
     }
     // Concurrent 401s share the in-flight refresh (see authenticate).
     const fresh = await this.authenticate(session);
@@ -338,14 +372,38 @@ export class IaqualinkClient {
     return hit;
   }
 
-  async iaquaCommand(serial: string, command: string, params: Record<string, string> = {}): Promise<unknown> {
-    return this.withSession((s) => {
-      const qs = new URLSearchParams({ ...params, actionID: 'command', command, serial, sessionID: s.sessionId });
-      return this.send(`${IAQUA_SESSION_URL}?${qs}`, {
-        method: 'GET',
-        headers: { authorization: `Bearer ${s.idToken}`, api_key: API_KEY },
-      });
-    });
+  /**
+   * Send an iAqua session.json command. `endpoint` defaults to the primary
+   * channel; an alternate one never triggers a re-authentication (a 401 there
+   * is reported as an `http` error) so the schedule probe cannot churn logins.
+   */
+  async iaquaCommand(
+    serial: string,
+    command: string,
+    params: Record<string, string> = {},
+    endpoint: SessionEndpoint = SESSION_ENDPOINTS[0]!,
+  ): Promise<unknown> {
+    return this.withSession(
+      (s) => {
+        const qs = new URLSearchParams({ ...params, actionID: 'command', command, serial, sessionID: s.sessionId });
+        return this.send(`${endpoint.url}?${qs}`, {
+          method: 'GET',
+          headers: { authorization: endpoint.auth === 'bearer' ? `Bearer ${s.idToken}` : s.idToken, api_key: API_KEY },
+        });
+      },
+      { reauth: endpoint === SESSION_ENDPOINTS[0] },
+    );
+  }
+
+  /**
+   * Redact upstream text for a tool result: secret shapes and length via
+   * `truncateErrorMessage`, then the password and every live session token
+   * by value (they have no recognisable shape).
+   */
+  scrubText(text: string, max = 2_000): string {
+    const s = this.session;
+    const secrets = [this.password, s?.sessionId, s?.authToken, s?.idToken, s?.refreshToken].filter((x): x is string => Boolean(x));
+    return secrets.reduce((t, secret) => t.split(secret).join('[redacted]'), truncateErrorMessage(text, max));
   }
 
   async getExoShadow(serial: string): Promise<unknown> {
