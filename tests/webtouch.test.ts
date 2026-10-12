@@ -85,7 +85,52 @@ describe('applyEvent', () => {
   });
 });
 
+describe('applyEvent across the time keypad', () => {
+  it('keeps the schedule screen\'s selection and Edit state across a keypad round trip (live 2026-10-12)', () => {
+    const st = emptyState();
+    const ev = (code: string, params: string) => applyEvent(st, { code, params });
+    ev('23', '40');
+    ev('2D', 'Schedule');
+    ev('26', '0||5||Not Used\t1:00 PM\t1:00 PM\tAll');
+    ev('40', '0||5||1');
+    ev('24', '1||1||1||Edit||');
+    ev('23', '41');
+    expect(st).toMatchObject({ screen: '41', selected: null, title: null });
+    expect(st.buttons.size).toBe(0);
+    ev('25', '1||03:00');
+    // Back from the keypad the panel sends only the screen id and the changed row.
+    ev('23', '40');
+    ev('26', '0||5||Not Used\t3:00 AM\t1:00 PM\tAll');
+    expect(st).toMatchObject({ screen: '40', title: 'Schedule', selected: 5 });
+    expect(st.buttons.get(1)?.state).toBe('1');
+    expect(st.rows.get(5)).toBe('Not Used\t3:00 AM\t1:00 PM\tAll');
+    expect(st.texts.size).toBe(0);
+  });
+
+  it('starts clean when the keypad leads to a different screen', () => {
+    const st = emptyState();
+    const ev = (code: string, params: string) => applyEvent(st, { code, params });
+    ev('23', '40');
+    ev('40', '0||5||1');
+    ev('23', '41');
+    ev('23', '1');
+    expect(st).toMatchObject({ screen: '1', selected: null });
+    ev('23', '41');
+    ev('23', '40');
+    expect(st.selected).toBeNull();
+  });
+});
+
 describe('WebTouchSession', () => {
+  it('opens on a panel that shows only a dialog (start-up press while in Edit mode, live 2026-10-12)', async () => {
+    const server = new FakeIaqualink();
+    Object.assign(server.webtouch, { screen: 40, edit: true, selected: 0 });
+    const s = await WebTouchSession.open(client(server), 'IAQ123', TIMING);
+    expect(s.state.screen).toBeNull();
+    expect(s.state.dialog?.message).toMatch(/must be saved before exiting/);
+    s.close();
+  });
+
   it('opens: init, stream, start-up press on the start actionID, first screen', async () => {
     const server = new FakeIaqualink();
     const s = await WebTouchSession.open(client(server), 'IAQ123', TIMING);

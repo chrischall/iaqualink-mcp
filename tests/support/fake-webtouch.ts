@@ -5,6 +5,15 @@
  * keypad, 56 device picker, 77 OneTouch), the command ids, the edit-mode
  * guard, the delete confirmation and Save. Behaviour the capture did not
  * record (e.g. picker selection echo, PageDown past the end) is marked.
+ *
+ * Seen live 2026-10-12 (an add aborted mid-way, then recovered by hand):
+ *  - back from the keypad the panel sends only the screen id and the changed
+ *    row — no selection, no Edit state (netlink.js keeps the hidden screen's
+ *    elements and shows them again);
+ *  - Save sends only the Edit-off state and the changed row;
+ *  - in Edit mode a row press answers "Press SAVE to store program changes.";
+ *  - the start-up press of a new session, in Edit mode, only raises "Program
+ *    changes must be saved…" (no screen); with a dialog open it closes it.
  */
 
 export interface PanelSchedule {
@@ -205,10 +214,16 @@ export class FakeWebTouch {
   command(actionID: string, command: string, text?: string): void {
     this.commands.push({ actionID, command, ...(text !== undefined ? { text } : {}) });
     if (this.ignore.has(command)) return;
-    if (actionID === WT_INIT.actionIdMasterStart && command === '1') this.go(this.screen);
+    if (actionID === WT_INIT.actionIdMasterStart && command === '1') this.start();
     else if (actionID === WT_INIT.actionIdMasterSTB && command === '128') this.enter(text ?? '');
     else if (actionID === WT_INIT.actionIdMasterId) this.press(Number(command));
     this.afterCommand?.(command);
+  }
+
+  private start(): void {
+    if (this.dialog) return this.closeDialog();
+    if (this.screen === 40 && this.edit) return this.openDialog('mustSave');
+    this.go(this.screen);
   }
 
   private leave(to: number): void {
@@ -291,7 +306,7 @@ export class FakeWebTouch {
       this.saved = structuredClone(this.working);
       this.edit = false;
       this.emit('24', '1||0||1||Edit||');
-      return this.paintRows();
+      return this.paintSelectedRow();
     }
     if (cmd >= 23 && cmd <= 32 && this.edit && sel) {
       sel.days = DAYS[cmd - 23]!;
@@ -306,7 +321,8 @@ export class FakeWebTouch {
     }
     if (cmd >= 35 && cmd <= 41) {
       const i = this.page * PAGE + cmd - 35;
-      if (!this.working[i] || this.edit) return;
+      if (this.edit) return this.openDialog('pressSave');
+      if (!this.working[i]) return;
       this.selected = i;
       this.paintRows();
       this.paintDays();
@@ -342,6 +358,13 @@ export class FakeWebTouch {
     if (this.keypad!.field === 'start') sel.start = value;
     else sel.stop = value;
     this.keypad = null;
-    this.go(40);
+    this.screen = 40;
+    this.emit('23', '40');
+    this.paintSelectedRow();
+  }
+
+  private paintSelectedRow(): void {
+    if (this.selected === null) return;
+    this.emit('26', `0||${this.selected - this.page * PAGE + 1}||${this.rowText(this.working[this.selected])}`);
   }
 }

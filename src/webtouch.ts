@@ -81,10 +81,14 @@ export interface PanelState {
   texts: Map<number, string>;
   /** Code 2C `type||buttons||message||btn1||btn2…`; a blank message closes it. */
   dialog: { type: string; message: string; buttons: string[] } | null;
+  /** The screen the time keypad (41) was opened from, as it was then. */
+  underKeypad: Omit<PanelState, 'underKeypad' | 'dialog'> | null;
 }
 
+export const KEYPAD = '41';
+
 export function emptyState(): PanelState {
-  return { screen: null, title: null, rows: new Map(), selected: null, buttons: new Map(), texts: new Map(), dialog: null };
+  return { screen: null, title: null, rows: new Map(), selected: null, buttons: new Map(), texts: new Map(), dialog: null, underKeypad: null };
 }
 
 const int = (v: string | undefined): number | null => (v !== undefined && /^\d+$/.test(v) ? Number(v) : null);
@@ -93,10 +97,17 @@ const int = (v: string | undefined): number | null => (v !== undefined && /^\d+$
 export function applyEvent(st: PanelState, ev: PrintNL): void {
   const p = ev.params.split('||');
   switch (ev.code) {
-    case '23':
+    case '23': {
       // netlink.js cleans the screen only when the id changes.
-      if (ev.params !== st.screen) Object.assign(st, emptyState(), { screen: ev.params });
+      if (ev.params === st.screen) return;
+      const { underKeypad: under, dialog: _, ...shown } = st;
+      // Back from the keypad the panel sends only the screen id and the changed row, relying on
+      // netlink.js showing the hidden screen again — so the selection and Edit state carry over
+      // (live 2026-10-12). Only this round trip: elsewhere the panel does not resend blank rows.
+      const back = under?.screen === ev.params ? under : null;
+      Object.assign(st, emptyState(), back ?? { screen: ev.params }, { underKeypad: ev.params === KEYPAD ? shown : null });
       return;
+    }
     case '2D':
       st.title = ev.params;
       return;
@@ -145,6 +156,8 @@ export class WebTouchSession {
   private lastEventAt = Date.now();
   private closed = false;
   private failure: unknown;
+  /** Presses sent on the master actionIDs (not the start-up press). */
+  presses = 0;
 
   private constructor(
     private readonly client: IaqualinkClient,
@@ -162,7 +175,8 @@ export class WebTouchSession {
     void s.pump(body);
     try {
       await client.webtouchCommand(init.start, 1);
-      await s.waitFor((st) => st.screen !== null, 'the panel to show its first screen');
+      // In schedule Edit mode the panel answers with only a dialog, no screen (live 2026-10-12).
+      await s.waitFor((st) => st.screen !== null || st.dialog !== null, 'the panel to show its first screen');
       await s.quiet();
       return s;
     } catch (err) {
@@ -235,6 +249,7 @@ export class WebTouchSession {
   /** Press a button (actionIdMasterId), then wait for `until` and for the stream to settle. */
   async press(command: number, what: string, until: (st: PanelState) => boolean): Promise<void> {
     this.lastEventAt = Date.now();
+    this.presses++;
     await this.client.webtouchCommand(this.init.master, command);
     await this.waitFor(until, what);
     await this.quiet();
@@ -243,6 +258,7 @@ export class WebTouchSession {
   /** Submit the keypad (command 128 + text on actionIdMasterSTB, netlink.js:1411), then wait as `press` does. */
   async enterText(text: string, what: string, until: (st: PanelState) => boolean): Promise<void> {
     this.lastEventAt = Date.now();
+    this.presses++;
     await this.client.webtouchCommand(this.init.stb, 128, text);
     await this.waitFor(until, what);
     await this.quiet();

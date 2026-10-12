@@ -107,14 +107,21 @@ const dayOn = (st: PanelState, d: PanelDay) => st.buttons.get(6 + PANEL_DAYS.ind
 
 class Abort extends Error {}
 
+const UNSAVED = 'UNSAVED changes (open WebTouch or the panel and Save or discard them)';
+/** The panel's answers to leaving, or pressing anything but Save, while in schedule Edit mode. */
+const EDIT_DIALOG = /must be saved before exiting|press save to store program changes/i;
+
 /** One panel operation: guarded presses, a dirty flag, and clean-up on abort. */
 export class PanelOp {
   /** Something has been entered that a Save would store. */
   dirty = false;
   /** This operation turned Edit mode on (so an empty Save to leave it is ours to press). */
   ownsEdit = false;
+  private readonly pressesBefore: number;
 
-  constructor(readonly s: WebTouchSession) {}
+  constructor(readonly s: WebTouchSession) {
+    this.pressesBefore = s.presses;
+  }
 
   get st(): PanelState {
     return this.s.state;
@@ -227,6 +234,8 @@ export class PanelOp {
   /**
    * After an abort: close a dialog, leave edit mode if nothing was entered
    * (a Save then is a no-op — owner-verified), go Home where that is safe.
+   * A panel this operation never pressed is left exactly as found. Home is
+   * never pressed over unsaved changes (it only raises "must be saved").
    * Returns a description of the state the panel was left in.
    */
   async cleanUp(): Promise<string> {
@@ -237,20 +246,25 @@ export class PanelOp {
         /* report the state below */
       }
     };
-    if (this.st.dialog) {
-      const isDelete = /delete this program/i.test(this.st.dialog.message);
-      await step(isDelete ? CMD.dialogCancel : CMD.dialogOk, 'the dialog to close', (st) => st.dialog === null);
+    if (this.s.presses > this.pressesBefore) {
+      if (this.st.dialog) {
+        const isDelete = /delete this program/i.test(this.st.dialog.message);
+        await step(isDelete ? CMD.dialogCancel : CMD.dialogOk, 'the dialog to close', (st) => st.dialog === null);
+      }
+      if (!this.st.dialog && this.st.screen === SCREEN.schedule && editOn(this.st) && this.ownsEdit && !this.dirty) {
+        await step(CMD.save, 'Save (no-op) to turn Edit off', (st) => !editOn(st));
+      }
+      const stuck =
+        this.dirty || this.st.dialog || this.st.screen === null || this.st.screen === SCREEN.keypad || (this.st.screen === SCREEN.schedule && editOn(this.st));
+      if (!stuck) await step(CMD.home, 'the Home screen', (st) => st.screen === SCREEN.home);
     }
-    if (!this.st.dialog && this.st.screen === SCREEN.schedule && editOn(this.st) && this.ownsEdit && !this.dirty) {
-      await step(CMD.save, 'Save (no-op) to turn Edit off', (st) => !editOn(st));
-    }
-    const stuck = this.st.dialog || this.st.screen === SCREEN.keypad || (this.st.screen === SCREEN.schedule && editOn(this.st));
-    if (!stuck) await step(CMD.home, 'the Home screen', (st) => st.screen === SCREEN.home);
     const st = this.st;
-    const parts = [`panel left on screen ${st.screen}`];
-    if (st.screen === SCREEN.schedule && editOn(st)) parts.push('in Edit mode with UNSAVED changes (open WebTouch or the panel and Save or discard them)');
+    const parts = [st.screen === null ? 'panel left on an unknown screen' : `panel left on screen ${st.screen}`];
+    if (st.screen === SCREEN.schedule && editOn(st)) parts.push(`in Edit mode with ${UNSAVED}`);
+    else if (this.dirty) parts.push(`with ${UNSAVED}`);
     if (st.screen === SCREEN.keypad) parts.push('on the time keypad, mid-entry');
     if (st.dialog) parts.push(`with the dialog "${st.dialog.message}" open`);
+    if (st.dialog && EDIT_DIALOG.test(st.dialog.message)) parts.push(`(the panel is in schedule Edit mode with ${UNSAVED})`);
     return parts.join(' ');
   }
 

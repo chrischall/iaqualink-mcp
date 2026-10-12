@@ -113,11 +113,30 @@ describe('readSchedules', () => {
     expect(pressed()).toEqual(['17']);
   });
 
-  it('refuses to touch a panel that is already in Edit mode, or showing a dialog', async () => {
+  it('presses nothing on a panel left in Edit mode with unsaved changes, and says so', async () => {
     const { use, wt, pressed } = panel();
     Object.assign(wt, { screen: 40, edit: true, selected: 0 });
+    // The real panel answers the start-up press with only this dialog (live 2026-10-12).
+    await expect(use(readSchedules)).rejects.toThrow(
+      /dialog is open \("Program changes must be saved.*panel left on an unknown screen.*schedule Edit mode with UNSAVED changes/,
+    );
+    expect(pressed()).toEqual([]);
+    expect(wt.edit).toBe(true);
+  });
+
+  it('refuses to go on when the panel turns out to be in someone else\'s Edit mode', async () => {
+    const { use, wt, pressed } = panel();
+    Object.assign(wt, { screen: 40, selected: 0 });
+    wt.afterCommand = () => {
+      wt.afterCommand = undefined;
+      wt.edit = true;
+      wt.emit('24', '1||1||1||Edit||');
+    };
     await expect(use(readSchedules)).rejects.toThrow(/already in schedule Edit mode .*panel left on screen 40 in Edit mode with UNSAVED/);
     expect(pressed()).toEqual([]);
+  });
+
+  it('refuses a panel showing a dialog', async () => {
     const p2 = panel();
     p2.wt.dialog = 'pressSave';
     p2.wt.afterCommand = (c) => {
@@ -192,6 +211,23 @@ describe('addSchedule — the captured Add sequence', () => {
     await expect(p.use((s) => addSchedule(s, { circuit: 'Spa', start: '09:00', stop: '10:00', days: 'All' }, before))).rejects.toThrow(
       /new row 5 is not "Spa".*Edit mode with UNSAVED changes/,
     );
+  });
+});
+
+describe('clean-up after a failed add', () => {
+  it('never presses Home over unsaved changes, even when the Edit state was not seen', async () => {
+    const p = panel();
+    const before = await planned(p);
+    p.wt.commands.length = 0;
+    p.wt.afterCommand = (c) => {
+      // Back on the list after the start time, the display wrongly shows Edit off.
+      if (c === '128') p.wt.emit('24', '1||0||1||Edit||');
+    };
+    await expect(p.use((s) => addSchedule(s, { circuit: 'Spa', start: '03:00', stop: '03:01', days: 'Su' }, before))).rejects.toThrow(
+      /Edit mode is off, expected on.*panel left on screen 40 with UNSAVED changes/,
+    );
+    expect(p.pressed().at(-1)).toBe('128:03:00');
+    expect(p.wt.dialog).toBeNull();
   });
 });
 
