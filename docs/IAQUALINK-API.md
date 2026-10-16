@@ -1,16 +1,20 @@
 # iAqualink cloud API — what this server sends, and where each shape comes from
 
-> **Live verification is PENDING.** No request below has been made with a real
-> account yet. Every shape is transcribed from **iaqualink-py 0.7.0** (PyPI
-> `iaqualink`, the client Home Assistant's iAqualink integration uses), its
-> source and its test fixtures. The first real connect should confirm each one;
-> update this file (and drop the "derived" notes in the skills, tool
-> descriptions and README) as each is seen working.
+> **Live verification is PARTIAL.** Shapes are transcribed from **iaqualink-py
+> 0.7.0** (PyPI `iaqualink`, the client Home Assistant's iAqualink integration
+> uses), its source and test fixtures, plus the WebTouch capture below.
 >
-> The one thing that HAS been checked live: `POST /users/v1/login` with the app
-> key below and a deliberately fake `@example.com` account answered
-> `401 {"message":"Authorization Required"}` — the endpoint and key are current,
-> only the credential was wrong.
+> **Seen working live** (this server against the owner's RS panel, 2026-10-11/12,
+> the WebTouch sessions recorded in `src/webtouch.ts` and `src/rs-panel.ts`):
+> `POST /users/v1/login`, `GET devices.json`, the iAqua `get_home` /
+> `get_devices` reads (every panel tool reads status first), and the WebTouch
+> `userId` / `locations` / `init` / `command` calls and display stream.
+>
+> **Still derived** (not yet exercised against a real account): the iAqua
+> `set_*` toggles and `set_temps` / `set_light`, every eXO shadow request (read
+> and desired-state writes), the chlorinator output shape, the iQ20 schedule
+> fallback and eXO timers. Update this note, the skills and the README as each
+> is seen working.
 
 ## Hosts
 

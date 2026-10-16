@@ -23,6 +23,26 @@ describe('confirmation gate', () => {
     expect(sets(server)).toEqual(['set_pool_pump']);
   });
 
+  it('a toggle whose connection drops after sending says the outcome is unknown, and the next read is fresh (fleet-audit#1268)', async () => {
+    const { call, fail, server, client } = await setup();
+    // A status cache the failed write must not leave stale.
+    (client as unknown as { statusCacheMs: number }).statusCacheMs = 60_000;
+    const preview = await call('iaqualink_set_equipment', { serial: 'IAQ123', equipment: 'pool_pump', on: false });
+    server.dropAfterApply = /command=set_pool_pump/;
+    const text = await fail('iaqualink_set_equipment', {
+      serial: 'IAQ123',
+      equipment: 'pool_pump',
+      on: false,
+      confirmToken: preview.confirmToken,
+    });
+    expect(text).toMatch(/may already have been applied/);
+    expect(text).toContain('iaqualink_get_status');
+    expect(text).not.toMatch(/Check the network/);
+    expect(server.home.pool_pump).toBe('0'); // it did land
+    const status = await call('iaqualink_get_status', { serial: 'IAQ123' });
+    expect(JSON.stringify(status)).toMatch(/"pool_pump":(false|"off"|0)/);
+  });
+
   it('sends nothing when the state already changed to the request between preview and confirm (toggle safety)', async () => {
     const { call, server } = await setup();
     const preview = await call('iaqualink_set_equipment', { serial: 'IAQ123', equipment: 'pool_pump', on: false });

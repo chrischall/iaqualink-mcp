@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "iaqualink": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@chrischall/iaqualink-mcp"],
       "env": {
         "IAQUALINK_EMAIL": "${IAQUALINK_EMAIL}",
         "IAQUALINK_PASSWORD": "${IAQUALINK_PASSWORD}",

@@ -1,0 +1,10 @@
+# gitleaks config: the default rules, minus one known public value.
+# EOOEMOW4YR6QNB07 is the iAqualink mobile app's public API key, shipped in
+# iaqualink-py's const.py and the vendor's app. It identifies the app, not an
+# account, so it is not a secret (chrischall/fleet-audit#1381).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "iAqualink app's public API key"
+regexes = ['''EOOEMOW4YR6QNB07''']

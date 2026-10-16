@@ -11,9 +11,11 @@ circuits, lights) and **eXO** (Zodiac salt chlorinators — chlorine production,
 boost, low mode, filter pump, heating, pH/ORP). Other devices on the account
 (robotic cleaners) are listed but not controlled.
 
-> Built from the open-source iaqualink-py client; live verification against a
-> real pool is pending. If a write comes back `sent-unconfirmed`, say so
-> plainly rather than claiming it worked.
+> Built from the open-source iaqualink-py client. Sign-in, the system list,
+> iAqua status reads and the WebTouch panel tools have been seen working on a
+> real RS panel. The iAqua `set_*` commands, everything eXO and the chlorinator
+> shape are still derived and not yet exercised live. If a write comes back
+> `sent-unconfirmed`, say so plainly rather than claiming it worked.
 
 ## Start here
 

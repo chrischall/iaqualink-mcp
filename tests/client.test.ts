@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { RateLimitError, UnreachableError, McpToolError } from '@chrischall/mcp-utils';
+import { RateLimitError, RequestTimeoutError, UnreachableError, McpToolError, WriteOutcomeUnknownError } from '@chrischall/mcp-utils';
 import { IaqualinkClient, API_KEY } from '../src/client.js';
 import { FakeIaqualink } from './support/fake-server.js';
 
@@ -537,5 +537,36 @@ describe('IaqualinkClient — WebTouch bootstrap (ejc3/iaqualink-webtouch@42c4d6
     await expect(client.openWebTouchStream('https://prm.iaqualink.net/v2/webtouch/stream', ac.signal)).rejects.toThrow(/stream answered 503/);
     const noBody = new IaqualinkClient({ email: 'a', password: 'b', fetchImpl: async () => new Response(null, { status: 200 }) });
     await expect(noBody.openWebTouchStream('https://prm.iaqualink.net/x', ac.signal)).rejects.toThrow(/no body/);
+  });
+});
+
+describe('IaqualinkClient — writes whose outcome is unknown (fleet-audit#1268)', () => {
+  const failing = (server: FakeIaqualink, match: RegExp, error: unknown) =>
+    (async (input: string | URL | Request, init?: RequestInit) => {
+      const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (match.test(href)) throw error;
+      return server.fetch(input, init);
+    }) as typeof fetch;
+
+  it('an iAqua set_* GET that times out is WriteOutcomeUnknownError, with the re-read hint', async () => {
+    const server = new FakeIaqualink();
+    const { client } = make(server, { fetchImpl: failing(server, /command=set_/, new RequestTimeoutError('iAqualink', 20_000)) });
+    const err = (await client.iaquaCommand('IAQ123', 'set_pool_pump').catch((e: unknown) => e)) as WriteOutcomeUnknownError;
+    expect(err).toBeInstanceOf(WriteOutcomeUnknownError);
+    expect(err.timedOut).toBe(true);
+    expect(err.hint).toContain('iaqualink_get_status');
+  });
+
+  it('a read GET that times out stays a plain timeout', async () => {
+    const server = new FakeIaqualink();
+    const timeout = new RequestTimeoutError('iAqualink', 20_000);
+    const { client } = make(server, { fetchImpl: failing(server, /command=get_home/, timeout) });
+    await expect(client.iaquaCommand('IAQ123', 'get_home')).rejects.toBe(timeout);
+  });
+
+  it('an eXO desired-state POST that drops is WriteOutcomeUnknownError', async () => {
+    const server = new FakeIaqualink();
+    const { client } = make(server, { fetchImpl: failing(server, /\/shadow/, new TypeError('fetch failed')) });
+    await expect(client.setExoDesired('EXO123', { production: 1 })).rejects.toBeInstanceOf(WriteOutcomeUnknownError);
   });
 });

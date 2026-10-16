@@ -10,12 +10,18 @@ Supports the two system types the reference client supports: **iAqua**
 (Jandy iAquaLink panels) and **eXO** (Zodiac salt chlorinators). Other device
 types on the account (robotic cleaners, …) are listed but not controlled.
 
-> **Status: built from the open-source client, live verification pending.**
-> Every request shape is transcribed from
+> **Status: partly verified live.** Request shapes come from
 > [iaqualink-py](https://pypi.org/project/iaqualink/) 0.7.0 (what Home
-> Assistant uses) — see [docs/IAQUALINK-API.md](docs/IAQUALINK-API.md) — and has
-> not yet been exercised against a real pool. The login endpoint and app key
-> are confirmed live.
+> Assistant uses) and a WebTouch capture (see
+> [docs/IAQUALINK-API.md](docs/IAQUALINK-API.md)).
+> - **Seen working on a real iAqua (RS) panel, 2026-10-11/12:** sign-in, the
+>   system list (`devices.json`), the iAqua status reads (`get_home`,
+>   `get_devices`) and WebTouch (location lookup, init, button presses and the
+>   display stream).
+> - **Still derived, not yet exercised live:** the iAqua `set_*` commands (pump,
+>   heater, aux, light, temperature), every eXO request (shadow read and
+>   writes), `iaqualink_set_chlorinator`'s inferred shape, and the iQ20 schedule
+>   fallback. Every write still re-reads to confirm what happened.
 
 This project was developed and is maintained by AI (Claude Code). Use at your
 own discretion.
@@ -109,8 +115,8 @@ start.
 
 - `skills/iaqualink` — how to use these tools.
 - `skills/iaqualink-curl` — the same reads straight from a shell with `curl`,
-  credentials from the macOS Keychain (derived from iaqualink-py; live
-  verification pending).
+  credentials from the macOS Keychain (the sign-in, system list and iAqua reads
+  are seen live; the eXO shadow read is still derived from iaqualink-py).
 
 ## Development
 
