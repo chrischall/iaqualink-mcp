@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "iaqualink-mcp",
   "display_name": "iAqualink",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "iAqualink (Zodiac/Jandy/Fluidra) pool equipment for Claude — read temperatures, pumps, heaters and chlorinator state, and switch equipment with confirmation",
   "author": {
     "name": "Chris Hall",
