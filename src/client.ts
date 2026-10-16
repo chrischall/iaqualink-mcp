@@ -2,8 +2,10 @@
  * The iAqualink (Zodiac / Fluidra) cloud client.
  *
  * Every endpoint, header and body here is transcribed from iaqualink-py 0.7.0
- * — the open-source client Home Assistant's integration uses — and is NOT yet
- * verified against a live account (docs/IAQUALINK-API.md records provenance
+ * — the open-source client Home Assistant's integration uses — or from the
+ * WebTouch capture. Login, devices.json, the iAqua reads and WebTouch have been
+ * seen working on a real RS panel (2026-10-11/12); the iAqua set_* commands and
+ * every eXO request are still derived (docs/IAQUALINK-API.md records provenance
  * line by line). The hosts involved:
  *
  *  - `prod.zodiac-io.com` — login, token refresh, and the eXO device shadow;
@@ -32,14 +34,17 @@
  * 15 s and both system types are polled by the vendor's own app.
  */
 import {
+  ApiError,
   McpToolError,
   RateLimitError,
+  RequestTimeoutError,
   UnreachableError,
+  WriteOutcomeUnknownError,
+  createApiClient,
   createThrottle,
-  fetchBounded,
-  parseJsonBody,
   readEnvVar,
   truncateErrorMessage,
+  type ApiClient,
   type EnvSource,
   type Throttle,
 } from '@chrischall/mcp-utils';
@@ -150,12 +155,32 @@ class AuthExpired extends Error {
   }
 }
 
+/**
+ * What a write whose outcome is unknown tells the model. iAqua pump/heater/aux
+ * commands are TOGGLES, so the right next step is a fresh read, never a blind
+ * re-send (fleet-audit#1268).
+ */
+export const WRITE_OUTCOME_HINT =
+  'The command may have reached the pool controller. Re-read the state with iaqualink_get_status before ' +
+  'retrying; a retry of a toggle that already landed would be refused as unchanged, but check first.';
+
+/** One request through {@link IaqualinkClient.send}. */
+interface SendInit {
+  method: string;
+  /** JSON-serialised as the request body. */
+  body?: unknown;
+  headers?: Record<string, string>;
+  /**
+   * The request changes equipment: the iAqua `set_*` commands (GETs), eXO
+   * desired-state POSTs and WebTouch presses. A write that times out or drops
+   * throws {@link WriteOutcomeUnknownError}, never a retry-looking transport
+   * error. Anything else (login, refresh, reads) keeps the plain errors.
+   */
+  write?: boolean;
+}
+
 const NO_CREDENTIAL_HINT =
   'Set IAQUALINK_EMAIL and IAQUALINK_PASSWORD (the iAqualink app sign-in), or reconnect the hosted connector and enter them.';
-
-function hostOf(url: string): string {
-  return new URL(url).host;
-}
 
 export class IaqualinkClient {
   readonly statusCacheMs: number;
@@ -166,6 +191,8 @@ export class IaqualinkClient {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly throttle: Throttle;
   private readonly streamHosts: string[];
+  /** One mcp-utils API client per origin (the server talks to several hosts). */
+  private readonly apis = new Map<string, ApiClient>();
 
   private session: Session | undefined;
   private authInFlight: Promise<Session> | undefined;
@@ -214,39 +241,67 @@ export class IaqualinkClient {
     return truncateErrorMessage(text).split(this.password!).join('[redacted]');
   }
 
-  private async send(url: string, init: RequestInit & { headers?: Record<string, string> }): Promise<unknown> {
-    for (let attempt = 0; ; attempt++) {
-      const res = await this.throttle(async () => {
-        try {
-          return await fetchBounded(url, {
-            ...init,
-            headers: { 'user-agent': USER_AGENT, 'content-type': 'application/json', ...init.headers },
-          }, { timeoutMs: REQUEST_TIMEOUT_MS, read: 'text', service: SERVICE, fetchImpl: this.fetchImpl });
-        } catch (err) {
-          if (err instanceof McpToolError) throw err;
-          throw new McpToolError(`Could not reach ${hostOf(url)}: ${(err as Error).message}`, {
-            kind: 'transport',
-            cause: err,
-            hint: 'Check the network (and, when hosted, that the egress allowlist includes this host).',
-          });
-        }
+  private api(origin: string): ApiClient {
+    let api = this.apis.get(origin);
+    if (!api) {
+      api = createApiClient({
+        baseUrl: origin,
+        serviceName: SERVICE,
+        baseHeaders: { 'user-agent': USER_AGENT },
+        // Every attempt (429 retries included) goes through the one throttle.
+        fetchImpl: (input, init) => this.throttle(() => this.fetchImpl(input, init)),
+        sleep: this.sleep,
+        timeout: REQUEST_TIMEOUT_MS,
+        retry: { count: MAX_429_RETRIES, delayMs: DEFAULT_BACKOFF_MS, honorRetryAfter: true, maxRetryAfterMs: MAX_RETRY_AFTER_MS },
+        // The reauth path (withSession) owns 401s; the login latch owns a refused login.
+        onUnauthorized: () => new AuthExpired(401),
+        onRateLimited: ({ retryAfterMs }) =>
+          new RateLimitError(SERVICE, retryAfterMs === undefined ? undefined : Math.ceil(retryAfterMs / 1000)),
+        writeOutcomeHint: WRITE_OUTCOME_HINT,
       });
-      if (res.status === 429) {
-        const header = res.headers.get('retry-after');
-        const seconds = header !== null && /^\d+$/.test(header.trim()) ? Number(header) : undefined;
-        if (attempt >= MAX_429_RETRIES) throw new RateLimitError(SERVICE, seconds);
-        await this.sleep(seconds === undefined ? DEFAULT_BACKOFF_MS : Math.min(seconds * 1000, MAX_RETRY_AFTER_MS));
-        continue;
+      this.apis.set(origin, api);
+    }
+    return api;
+  }
+
+  /**
+   * One JSON request, through mcp-utils' `createApiClient` (429 retry with
+   * Retry-After, 401 → reauth, timeouts, write-outcome semantics). Query
+   * parameters travel separately so they — session tokens included — never
+   * appear in an error message.
+   */
+  private async send(url: string, init: SendInit): Promise<unknown> {
+    const u = new URL(url);
+    const query = Object.fromEntries(u.searchParams);
+    try {
+      return await this.api(u.origin).fetchJson(init.method, u.pathname, {
+        ...(Object.keys(query).length > 0 ? { query } : {}),
+        ...(init.headers ? { headers: init.headers } : {}),
+        ...(init.body !== undefined ? { body: init.body } : {}),
+        // Only a real write reports an unknown outcome; a login or refresh POST is safe to repeat.
+        idempotent: !init.write,
+      });
+    } catch (err) {
+      if (err instanceof AuthExpired || err instanceof RateLimitError || err instanceof WriteOutcomeUnknownError) throw err;
+      if (err instanceof ApiError) {
+        if (err.status >= 500) throw new UnreachableError(SERVICE, err.status);
+        throw new McpToolError(this.scrub(err.message), { kind: 'http', status: err.status, cause: err });
       }
-      if (res.status === 401) throw new AuthExpired(401);
-      if (res.status >= 500) throw new UnreachableError(SERVICE, res.status);
-      if (res.status !== 200) {
-        throw new McpToolError(`${SERVICE} answered ${res.status} for ${hostOf(url)}: ${this.scrub(res.body)}`, {
-          kind: 'http',
-          status: res.status,
+      if (init.write && (err instanceof RequestTimeoutError || !(err instanceof McpToolError))) {
+        // A GET that changes equipment (the iAqua set_* commands) is a write
+        // the client cannot tell apart from a read: report it as one.
+        throw new WriteOutcomeUnknownError(SERVICE, init.method, {
+          ...(err instanceof RequestTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
+          cause: err,
+          hint: WRITE_OUTCOME_HINT,
         });
       }
-      return parseJsonBody(res.body, { service: SERVICE, status: res.status });
+      if (err instanceof McpToolError || err instanceof RequestTimeoutError) throw err;
+      throw new McpToolError(`Could not reach ${u.host}: ${(err as Error).message}`, {
+        kind: 'transport',
+        cause: err,
+        hint: 'Check the network (and, when hosted, that the egress allowlist includes this host).',
+      });
     }
   }
 
@@ -289,7 +344,7 @@ export class IaqualinkClient {
     try {
       const data = await this.send(LOGIN_URL, {
         method: 'POST',
-        body: JSON.stringify({ api_key: API_KEY, email, password }),
+        body: { api_key: API_KEY, email, password },
       });
       return this.applyTokens(data, '');
     } catch (err) {
@@ -314,7 +369,7 @@ export class IaqualinkClient {
       const data = await this.send(REFRESH_URL, {
         method: 'POST',
         // No api_key — the refresh endpoint does not take one (iaqualink-py client.py).
-        body: JSON.stringify({ email: this.email, refresh_token: stale.refreshToken }),
+        body: { email: this.email, refresh_token: stale.refreshToken },
       });
       return this.applyTokens(data, stale.refreshToken);
     } catch (err) {
@@ -415,6 +470,8 @@ export class IaqualinkClient {
         return this.send(`${endpoint.url}?${qs}`, {
           method: 'GET',
           headers: { authorization: endpoint.auth === 'bearer' ? `Bearer ${s.idToken}` : s.idToken, api_key: API_KEY },
+          // The iAqua channel carries writes as GETs: every set_* command changes equipment.
+          write: !command.startsWith('get_'),
         });
       },
       { reauth: endpoint === SESSION_ENDPOINTS[0] },
@@ -446,7 +503,8 @@ export class IaqualinkClient {
       this.send(`${EXO_DEVICES_URL}/${encodeURIComponent(serial)}/shadow`, {
         method: 'POST',
         headers: { authorization: s.idToken },
-        body: JSON.stringify({ state: { desired } }),
+        body: { state: { desired } },
+        write: true,
       }),
     );
   }
@@ -495,7 +553,7 @@ export class IaqualinkClient {
   async webtouchCommand(actionID: string, command: number, text?: string): Promise<void> {
     const body = { actionID, command: String(command), dt: String(this.now()), ...(text !== undefined ? { text } : {}) };
     await this.withSession((s) =>
-      this.send(WEBTOUCH_COMMAND_URL, { method: 'POST', headers: { authorization: s.idToken }, body: JSON.stringify(body) }),
+      this.send(WEBTOUCH_COMMAND_URL, { method: 'POST', headers: { authorization: s.idToken }, body, write: true }),
     );
   }
 

@@ -111,8 +111,13 @@ export async function execute(
   });
   if (gate) return gate;
 
-  await plan.send();
-  deps.client.invalidate(serial);
+  try {
+    await plan.send();
+  } finally {
+    // Even a send that failed may have landed (WriteOutcomeUnknownError): the
+    // cached pre-write status must not answer the re-read it advises.
+    deps.client.invalidate(serial);
+  }
 
   const settled = plan.settled ?? ((v: unknown) => same(v, plan.requested));
   const v = await verifyAfterWrite({

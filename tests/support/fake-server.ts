@@ -87,6 +87,13 @@ export class FakeIaqualink {
   private sessionId = '';
   private queued: Array<{ status: number; body?: unknown; headers?: Record<string, string>; match?: RegExp }> = [];
 
+  /**
+   * When set, the NEXT matching request is APPLIED and then its connection
+   * drops before any response (consumed once) — a write whose outcome the
+   * client cannot know.
+   */
+  dropAfterApply: RegExp | undefined;
+
   /** Make the NEXT matching request answer `status` (consumed once). */
   failNext(status: number, opts: { body?: unknown; headers?: Record<string, string>; match?: RegExp } = {}): void {
     this.queued.push({ status, ...opts });
@@ -121,6 +128,11 @@ export class FakeIaqualink {
     if (qi >= 0) {
       const [q] = this.queued.splice(qi, 1);
       return this.reply(q!.status, q!.body ?? { message: `status ${q!.status}` }, q!.headers);
+    }
+    if (this.dropAfterApply?.test(url.href)) {
+      this.dropAfterApply = undefined;
+      this.route(method, url, headers, body, init.signal ?? undefined);
+      throw new TypeError('fetch failed', { cause: new Error('socket hang up') });
     }
     return this.route(method, url, headers, body, init.signal ?? undefined);
   };
