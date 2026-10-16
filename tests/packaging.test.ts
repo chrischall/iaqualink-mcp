@@ -55,6 +55,13 @@ describe('.claude-plugin/plugin.json', () => {
     expect(existsSync(resolve(ROOT, plugin.mcpServers))).toBe(true);
   });
 
+  it('the plugin launches the published package: a git-source plugin install never has dist/ (fleet-audit#1195)', () => {
+    const servers = json('.mcp.json').mcpServers as Record<string, { command: string; args: string[] }>;
+    const entry = servers.iaqualink!;
+    expect(entry.command).toBe('npx');
+    expect(entry.args).toEqual(['-y', json('package.json').name]);
+  });
+
   it('auto-discovers the skills directory', () => {
     expect(plugin.skills).toBe('./skills/');
   });
