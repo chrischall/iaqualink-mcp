@@ -1,6 +1,6 @@
 {
   "name": "@chrischall/iaqualink-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "mcpName": "io.github.chrischall/iaqualink-mcp",
   "description": "iAqualink (Zodiac/Fluidra) pool equipment MCP server for Claude — status plus confirm-gated pump, heater, light, aux and set-point control. Developed and maintained by AI (Claude Code).",
   "author": "Claude Code (AI) <https://www.anthropic.com/claude>",

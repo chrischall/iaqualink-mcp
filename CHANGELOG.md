@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/chrischall/iaqualink-mcp/compare/v0.2.0...v0.2.1) (2026-10-16)
+
+
+### Bug Fixes
+
+* **control:** report a dropped or timed-out write as outcome unknown, via createApiClient ([#9](https://github.com/chrischall/iaqualink-mcp/issues/9)) ([84f69e4](https://github.com/chrischall/iaqualink-mcp/commit/84f69e4234fc469453c0eea1a1b22af751263ee6))
+
 ## [0.2.0](https://github.com/chrischall/iaqualink-mcp/compare/v0.1.0...v0.2.0) (2026-10-12)
 
 
