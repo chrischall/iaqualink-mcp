@@ -1,13 +1,14 @@
 ---
 name: iaqualink-curl
-description: Read an iAqualink (Zodiac / Jandy / Fluidra) pool system straight from a shell with curl — sign in, list systems, and fetch the iAqua home/aux screens or an eXO chlorinator's shadow — without running the iaqualink-mcp server. Use for a one-off "what's the pool temperature" from the terminal, scripting, or debugging the API. Credentials come from the macOS Keychain item "iaqualink". Derived from iaqualink-py 0.7.0; live verification pending.
+description: Read an iAqualink (Zodiac / Jandy / Fluidra) pool system straight from a shell with curl — sign in, list systems, and fetch the iAqua home/aux screens or an eXO chlorinator's shadow — without running the iaqualink-mcp server. Use for a one-off "what's the pool temperature" from the terminal, scripting, or debugging the API. Credentials come from the macOS Keychain item "iaqualink". Derived from iaqualink-py 0.7.0; the sign-in, system list and iAqua reads are seen live, the eXO shadow read is not yet.
 ---
 
 # iAqualink via curl
 
-> **Derived from iaqualink-py 0.7.0 — live verification pending.** The recipes
-> transcribe the open-source client Home Assistant uses; only the login
-> endpoint and app key have been confirmed live. Shape reference:
+> **Derived from iaqualink-py 0.7.0, partly verified live.** The recipes
+> transcribe the open-source client Home Assistant uses. Sign-in,
+> `devices.json` and the iAqua `get_home` / `get_devices` reads have been seen
+> working on a real panel; the eXO shadow read has not. Shape reference:
 > `../../docs/IAQUALINK-API.md`.
 
 The iAqualink cloud is reachable server-side with a plain email/password

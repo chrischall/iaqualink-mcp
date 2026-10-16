@@ -1,10 +1,11 @@
 # shellcheck shell=bash
 # iAqualink from a shell — source me (bash or zsh):   . references/iaqualink.sh
 #
-# DERIVED FROM iaqualink-py 0.7.0 — LIVE VERIFICATION PENDING. Every endpoint,
-# header and body below is transcribed from the open-source client Home
-# Assistant uses (see the repo's docs/IAQUALINK-API.md); only the login
-# endpoint + app key have been confirmed live (a fake account got a 401).
+# DERIVED FROM iaqualink-py 0.7.0, PARTLY VERIFIED LIVE. Every endpoint, header
+# and body below is transcribed from the open-source client Home Assistant uses
+# (see the repo's docs/IAQUALINK-API.md). Sign-in, devices.json and the iAqua
+# get_home / get_devices reads have been seen working on a real panel; the eXO
+# shadow read has not.
 #
 # Credentials come from the macOS Keychain item with service "iaqualink":
 #   security add-generic-password -s iaqualink -a 'you@example.com' -w
