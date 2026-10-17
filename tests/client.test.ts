@@ -436,6 +436,19 @@ describe('IaqualinkClient — alternate session endpoints (schedule probe)', () 
     for (const secret of ['sess-1', 'auth-tok', 'id-tok-1', 'refresh-tok', server.password]) expect(out).not.toContain(secret);
     expect(out).toMatch(/ok$/);
   });
+
+  it('scrubs a password that straddles the length cap — no prefix survives the cut', async () => {
+    // Scrub-then-truncate: cutting first would leave the password's first
+    // characters in the excerpt, where no by-value match can find them.
+    const server = new FakeIaqualink();
+    const { client } = make(server);
+    await client.listSystems();
+    const max = 40;
+    const text = `${'x'.repeat(max - 4)}${server.password} tail`;
+    const out = client.scrubText(text, max);
+    expect(out).not.toContain(server.password.slice(0, 4));
+    expect(out.startsWith('x'.repeat(max - 4))).toBe(true);
+  });
 });
 
 describe('IaqualinkClient — WebTouch bootstrap (ejc3/iaqualink-webtouch@42c4d65 client.py:100-163)', () => {

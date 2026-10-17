@@ -233,12 +233,13 @@ export class IaqualinkClient {
 
   /**
    * Scrub the password out of any upstream text before it can reach a user.
-   * `redactSecrets` matches secret SHAPES and a password has none. Only called
-   * from `send`, which runs after `requireCredential`, so the password is set
-   * (and non-empty — an empty needle would splice the placeholder everywhere).
+   * `redactSecrets` matches secret SHAPES and a password has none, so it is
+   * scrubbed by value (`truncateErrorMessage`'s `values`, fleet-audit#1398) —
+   * BEFORE the shape redactor and the length cut, so a password straddling
+   * the cut cannot leave its first characters behind.
    */
   private scrub(text: string): string {
-    return truncateErrorMessage(text).split(this.password!).join('[redacted]');
+    return truncateErrorMessage(text, undefined, { values: [this.password], placeholder: '[redacted]' });
   }
 
   private api(origin: string): ApiClient {
@@ -479,14 +480,17 @@ export class IaqualinkClient {
   }
 
   /**
-   * Redact upstream text for a tool result: secret shapes and length via
-   * `truncateErrorMessage`, then the password and every live session token
-   * by value (they have no recognisable shape).
+   * Redact upstream text for a tool result via `truncateErrorMessage`: the
+   * password and every live session token by value first (they have no
+   * recognisable shape; raw and JSON-escaped), then secret shapes, then the
+   * length cap — scrubbing before the cut so no half-secret survives it.
    */
   scrubText(text: string, max = 2_000): string {
     const s = this.session;
-    const secrets = [this.password, s?.sessionId, s?.authToken, s?.idToken, s?.refreshToken].filter((x): x is string => Boolean(x));
-    return secrets.reduce((t, secret) => t.split(secret).join('[redacted]'), truncateErrorMessage(text, max));
+    return truncateErrorMessage(text, max, {
+      values: [this.password, s?.sessionId, s?.authToken, s?.idToken, s?.refreshToken],
+      placeholder: '[redacted]',
+    });
   }
 
   async getExoShadow(serial: string): Promise<unknown> {
