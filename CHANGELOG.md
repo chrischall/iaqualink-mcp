@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/chrischall/iaqualink-mcp/compare/v0.2.1...v0.2.2) (2026-10-17)
+
+
+### Bug Fixes
+
+* **security:** scrub the password and session tokens before truncating upstream text ([#13](https://github.com/chrischall/iaqualink-mcp/issues/13)) ([80e7dac](https://github.com/chrischall/iaqualink-mcp/commit/80e7dac1a530c33e5816cf1cf287064e09ff075c))
+
 ## [0.2.1](https://github.com/chrischall/iaqualink-mcp/compare/v0.2.0...v0.2.1) (2026-10-16)
 
 

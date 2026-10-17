@@ -7,7 +7,7 @@
   },
   "metadata": {
     "description": "MCP server for iAqualink pool equipment — status plus confirm-gated control, signing in with your own iAqualink account",
-    "version": "0.2.1"
+    "version": "0.2.2"
   },
   "plugins": [
     {
@@ -15,7 +15,7 @@
       "displayName": "iAqualink",
       "source": "./",
       "description": "MCP server for iAqualink pool equipment — read pool/spa temperatures and equipment state, and switch pumps, heaters, lights and aux circuits with confirmation",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "author": {
         "name": "Chris Hall"
       },
