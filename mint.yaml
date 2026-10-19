@@ -7,6 +7,16 @@ summary: >-
   confirmation-gated control. Each user signs in with their own iAqualink
   email and password.
 
+# Sample prompts for the public catalog — each one answerable by the read-only
+# tools (iaqualink_get_status / iaqualink_list_schedules / iaqualink_list_pump_speeds).
+examples:
+  - prompt: What's the pool and spa water temperature right now, and is the heater on?
+    note: Reads temperatures, set points and heater state.
+  - prompt: When is my pool pump scheduled to run each day?
+    note: Lists the panel's schedules (circuit, start, stop, days).
+  - prompt: Check my salt chlorinator — what are the salinity and output levels?
+    note: Where the system reports them; also pH and ORP.
+
 identity:
   # One child per caller: the child signs in to iAqualink AS the caller, so two
   # people sharing one child would share one signed-in session and one pool.
