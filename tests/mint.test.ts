@@ -55,6 +55,15 @@ describe('mint.yaml', () => {
     expect(allow).toEqual([...new Set(fetched)].sort());
   });
 
+  it('keeps the catalog summary within 200 characters (the catalog truncates past that)', () => {
+    // `summary: >-` is a folded scalar: its indented lines join with single spaces.
+    const m = /^summary: >-\n((?:[ \t]+\S.*\n?)+)/m.exec(code);
+    expect(m, 'summary must be a `>-` folded scalar').not.toBeNull();
+    const summary = m![1].split('\n').map((l) => l.trim()).filter(Boolean).join(' ');
+    expect(summary.length).toBeGreaterThan(0);
+    expect(summary.length).toBeLessThanOrEqual(200);
+  });
+
   it('puts no secret value in the file', () => {
     expect(code).not.toMatch(/default:/);
   });
