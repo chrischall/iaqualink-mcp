@@ -2,10 +2,9 @@ version: 1
 name: iAqualink
 slug: iaqualink
 summary: >-
-  iAqualink (Zodiac / Jandy / Fluidra) pool and spa equipment — temperatures,
-  pumps, heaters, lights, aux circuits and salt chlorinator status, plus
-  confirmation-gated control. Each user signs in with their own iAqualink
-  email and password.
+  iAqualink (Zodiac / Jandy / Fluidra) pool and spa — temperatures, pumps,
+  heaters, lights, aux and salt chlorinator status, plus confirmation-gated
+  control. Uses your own iAqualink login.
 
 # Sample prompts for the public catalog — each one answerable by the read-only
 # tools (iaqualink_get_status / iaqualink_list_schedules / iaqualink_list_pump_speeds).
