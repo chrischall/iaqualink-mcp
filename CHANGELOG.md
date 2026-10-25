@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.3](https://github.com/chrischall/iaqualink-mcp/compare/v0.2.2...v0.2.3) (2026-10-25)
+
+
+### Bug Fixes
+
+* **deps:** bump @chrischall/mcp-utils from 3.1.0 to 3.3.1 in the production-dependencies group ([#20](https://github.com/chrischall/iaqualink-mcp/issues/20)) ([359c277](https://github.com/chrischall/iaqualink-mcp/commit/359c277fc7560c140972e2c9142a560f035959c7))
+* **deps:** bump the production-dependencies group with 2 updates ([#16](https://github.com/chrischall/iaqualink-mcp/issues/16)) ([f354649](https://github.com/chrischall/iaqualink-mcp/commit/f35464989f7f1d777a7497b0ab39e552963dd9d2))
+
+
+### Documentation
+
+* **mint:** add sample prompts for the public catalog ([#18](https://github.com/chrischall/iaqualink-mcp/issues/18)) ([5fb1572](https://github.com/chrischall/iaqualink-mcp/commit/5fb157260c346f62363dc447216796ee7075cd40))
+* **mint:** fit the catalog summary within 200 characters ([#19](https://github.com/chrischall/iaqualink-mcp/issues/19)) ([e5a91fc](https://github.com/chrischall/iaqualink-mcp/commit/e5a91fcb88796790a2c90661bddae3ca59217889))
+
 ## [0.2.2](https://github.com/chrischall/iaqualink-mcp/compare/v0.2.1...v0.2.2) (2026-10-17)
 
 
