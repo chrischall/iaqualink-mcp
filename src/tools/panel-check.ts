@@ -14,7 +14,8 @@ import { McpToolError, errorKindOf, minifiedResult, toolAnnotations } from '@chr
 import { parseDevices, parseHome } from '../iaqua.js';
 import { describePanel, type PanelCheck } from '../rs-panel.js';
 import { withPanel } from '../webtouch.js';
-import { serialArg } from './read.js';
+import { SYSTEM_LOOKUP_META } from './hints.js';
+import { serialArgFor, withSystem } from './systems.js';
 import type { Deps } from './deps.js';
 
 function hintFor(p: PanelCheck): string {
@@ -30,15 +31,17 @@ function hintFor(p: PanelCheck): string {
 
 export function registerPanelCheckTool(server: McpServer, deps: Deps): void {
   const { client } = deps;
+  const serialArg = serialArgFor(deps.systems);
   server.registerTool(
     'iaqualink_check_panel',
     {
       description:
         'Check whether an iAqua (Jandy AquaLink RS) system is reachable and what its panel is showing: the cloud online flag, then — over WebTouch — the current screen, any open dialog, and whether the schedule screen is in Edit mode with unsaved changes. Use it when the app, WebTouch and the other tools disagree, or a schedule/OneTouch tool reports a dialog or a timeout. Sends only the start-up press the WebTouch page sends when it loads (in Edit mode the panel answers it with its "must be saved" dialog); presses nothing else and changes no setting.',
       annotations: toolAnnotations({ title: 'Check the panel', readOnly: true, openWorld: true }),
+      _meta: SYSTEM_LOOKUP_META,
       inputSchema: z.object({ serial: serialArg }),
     },
-    async ({ serial }) => {
+    withSystem(deps, async ({ serial }) => {
       const raw = await client.readRawStatus(serial, { fresh: true });
       if (raw.kind !== 'iaqua') throw new McpToolError('The panel check exists only on iAqua (Jandy AquaLink RS) systems.');
       if (!(parseHome(raw.home).online && parseDevices(raw.devices).online)) {
@@ -61,6 +64,6 @@ export function registerPanelCheckTool(server: McpServer, deps: Deps): void {
           hint: `iAqualink reports the system online, but the panel did not answer over WebTouch within ${deps.timing.webtouch.stepTimeoutMs / 1000} s. Usually transient — try again; if it persists, open WebTouch on iaqualink.net to look at the panel.`,
         });
       }
-    },
+    }),
   );
 }

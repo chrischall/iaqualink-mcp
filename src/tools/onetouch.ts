@@ -17,7 +17,8 @@ import { z } from 'zod';
 import { CONFIRM_FLOW_SENTENCE, McpToolError, confirmTokenParam, confirmWrite, minifiedResult, toolAnnotations } from '@chrischall/mcp-utils';
 import { readOneTouch, setOneTouch, type PanelScene } from '../rs-panel.js';
 import { withPanel, type WebTouchSession } from '../webtouch.js';
-import { serialArg } from './read.js';
+import { SWITCH_META, SYSTEM_LOOKUP_META } from './hints.js';
+import { serialArgFor, withSystem } from './systems.js';
 import type { Deps } from './deps.js';
 
 /** Scenes as shown to callers: `onetouch` is 1-based, as the panel labels "OneTouch 4" etc. */
@@ -30,6 +31,7 @@ function find(scenes: PanelScene[], ref: string): PanelScene | undefined {
 
 export function registerOneTouchTools(server: McpServer, deps: Deps): void {
   const { client } = deps;
+  const serialArg = serialArgFor(deps.systems);
   const panel = <T>(serial: string, fn: (s: WebTouchSession) => Promise<T>) => withPanel(client, serial, deps.timing.webtouch, fn);
 
   async function scenes(serial: string): Promise<PanelScene[]> {
@@ -44,9 +46,10 @@ export function registerOneTouchTools(server: McpServer, deps: Deps): void {
       description:
         'List a Jandy AquaLink RS panel’s OneTouch scenes — the panel-defined one-button macros such as "Spa Mode", "All OFF" or "Clean Mode" — with each scene’s number, label and whether it is on, read through iAqualink WebTouch (the panel emulation). Use iaqualink_set_onetouch to run or stop one.',
       annotations: toolAnnotations({ title: 'List OneTouch scenes', readOnly: true, openWorld: true }),
+      _meta: SYSTEM_LOOKUP_META,
       inputSchema: z.object({ serial: serialArg }),
     },
-    async ({ serial }) => minifiedResult({ serial, source: 'webtouch', scenes: (await scenes(serial)).map(show) }),
+    withSystem(deps, async ({ serial }) => minifiedResult({ serial, source: 'webtouch', scenes: (await scenes(serial)).map(show) })),
   );
 
   server.registerTool(
@@ -56,6 +59,7 @@ export function registerOneTouchTools(server: McpServer, deps: Deps): void {
         'Turn a Jandy AquaLink RS panel’s OneTouch scene on or off (by number 1–6, onetouch_<n>, or its label from iaqualink_list_onetouch), through WebTouch. The panel button is a toggle, so it is pressed only when the scene is not already in the requested state; the scenes are re-read afterwards to confirm. A scene switches several pieces of equipment at once, as configured on the panel. The toggle press was not exercised in the live capture. ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Switch a OneTouch scene', readOnly: false, destructive: false, idempotent: true, openWorld: true }),
+      _meta: SWITCH_META,
       inputSchema: z.object({
         serial: serialArg,
         onetouch: z.string().min(1).max(64).describe('Scene number (1–6), onetouch_<n>, or label'),
@@ -63,7 +67,7 @@ export function registerOneTouchTools(server: McpServer, deps: Deps): void {
         confirmToken: confirmTokenParam,
       }),
     },
-    async ({ serial, onetouch, on, confirmToken }, ctx) => {
+    withSystem(deps, async ({ serial, onetouch, on, confirmToken }, ctx) => {
       const before = await scenes(serial);
       const scene = find(before, onetouch);
       if (!scene) {
@@ -89,6 +93,6 @@ export function registerOneTouchTools(server: McpServer, deps: Deps): void {
       const after = await panel(serial, (s) => setOneTouch(s, scene.index, on));
       // setOneTouch only returns once the panel shows the scene in the requested state (it throws otherwise).
       return minifiedResult({ status: 'confirmed', ...base, observed: after.find((s) => s.index === scene.index)!.on, scenes: after.map(show) });
-    },
+    }),
   );
 }

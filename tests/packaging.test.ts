@@ -2,7 +2,7 @@
 // provenance validates repository.url, a scoped name needs public access, and
 // anything missing from `files` silently does not ship.
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -69,7 +69,10 @@ describe('.claude-plugin/plugin.json', () => {
 
 describe('environment variables', () => {
   it('declares every IAQUALINK_* variable the server reads in manifest.json, server.json and .mcp.json (CI strict surface lint)', () => {
-    const src = ['src/client.ts', 'src/index.ts'].map((p) => readFileSync(join(ROOT, p), 'utf8')).join('\n');
+    const src = readdirSync(join(ROOT, 'src'), { recursive: true })
+      .filter((f) => String(f).endsWith('.ts'))
+      .map((f) => readFileSync(join(ROOT, 'src', String(f)), 'utf8'))
+      .join('\n');
     const read = [...new Set([...src.matchAll(/'(IAQUALINK_[A-Z_]+)'/g)].map((m) => m[1]!))].sort();
     expect(read.length).toBeGreaterThan(0);
     const manifestEnv = Object.keys(json('manifest.json').server.mcp_config.env).sort();

@@ -38,7 +38,8 @@ import { execute, exoRequest, type Plan } from './control.js';
 import { readSchedules } from '../rs-panel.js';
 import { withPanel } from '../webtouch.js';
 import { showSchedule } from './panel.js';
-import { serialArg } from './read.js';
+import { SWITCH_META, SYSTEM_LOOKUP_META } from './hints.js';
+import { serialArgFor, withSystem } from './systems.js';
 import type { Deps } from './deps.js';
 
 type Exo = Extract<RawStatus, { kind: 'exo' }>;
@@ -155,6 +156,7 @@ function exoState(s: ExoSchedule | undefined) {
 
 export function registerScheduleTools(server: McpServer, deps: Deps): void {
   const { client } = deps;
+  const serialArg = serialArgFor(deps.systems);
 
   server.registerTool(
     'iaqualink_list_schedules',
@@ -162,9 +164,10 @@ export function registerScheduleTools(server: McpServer, deps: Deps): void {
       description:
         'List a pool system’s schedules (programs/timers). iAqua (Jandy AquaLink RS) panels: the panel’s own schedule — circuit, start, stop (24-hour, plus the panel’s text) and run days, with the page/row each sits at (what iaqualink_edit_schedule and iaqualink_delete_schedule identify it by) — read through iAqualink WebTouch, the panel emulation. If WebTouch is unavailable it falls back to the iQ20 schedule list (adapter firmware 3+), trying each candidate host once and reporting which answered (`probe`). eXO salt chlorinators: the pump, chlorinator and aux timers (name, start/stop, enabled, rpm for variable-speed pumps). Returns `supported: false` with the reason when there are none to read.',
       annotations: toolAnnotations({ title: 'List pool schedules', readOnly: true, openWorld: true }),
+      _meta: SYSTEM_LOOKUP_META,
       inputSchema: z.object({ serial: serialArg }),
     },
-    async ({ serial }) => {
+    withSystem(deps, async ({ serial }) => {
       const raw = await client.readRawStatus(serial);
       if (raw.kind === 'exo') return minifiedResult(listExo(raw));
       // An RS panel's own programs, through WebTouch; the iQ20 probe only if that is unavailable.
@@ -176,7 +179,7 @@ export function registerScheduleTools(server: McpServer, deps: Deps): void {
         webtouchError = client.scrubText(messageOf(err), 500);
       }
       return minifiedResult({ ...(await listIq20(client, raw)), source: 'iq20', webtouchError });
-    },
+    }),
   );
 
   server.registerTool(
@@ -186,6 +189,7 @@ export function registerScheduleTools(server: McpServer, deps: Deps): void {
         'Change one eXO salt-chlorinator timer (pump, chlorinator or aux): set its start and stop time (24-hour HH:MM) and enable it, set rpm on a variable-speed pump timer, or disable it (enabled: false clears it to 00:00–00:00, as the app does). Identify the timer by its key (sch3), id (sch_3), name or endpoint (ssp_1) from iaqualink_list_schedules. A chlorinator timer must stay inside its pump timer’s window. eXO systems only — for a Jandy AquaLink RS panel use iaqualink_add_schedule / iaqualink_edit_schedule / iaqualink_delete_schedule. The eXO applies changes asynchronously; the result says whether a re-read confirmed it. Unverified on live hardware (shape from community Home Assistant integrations). ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Set an eXO timer', readOnly: false, destructive: false, idempotent: true, openWorld: true }),
+      _meta: SWITCH_META,
       inputSchema: z.object({
         serial: serialArg,
         schedule: z.string().min(1).max(64).describe('Timer key (sch3), id (sch_3), name or endpoint (ssp_1)'),
@@ -196,7 +200,7 @@ export function registerScheduleTools(server: McpServer, deps: Deps): void {
         confirmToken: confirmTokenParam,
       }),
     },
-    async ({ serial, schedule, enabled, start, stop, rpm, confirmToken }, ctx: ServerContext) => {
+    withSystem(deps, async ({ serial, schedule, enabled, start, stop, rpm, confirmToken }, ctx: ServerContext) => {
       const raw = await client.readRawStatus(serial, { fresh: confirmToken !== undefined });
       if (raw.kind !== 'exo') {
         throw new McpToolError('Schedule changes are only supported on eXO systems.', {
@@ -249,6 +253,6 @@ export function registerScheduleTools(server: McpServer, deps: Deps): void {
         note: 'eXO timer writes are taken from community Home Assistant integrations and unverified on live hardware.',
       };
       return execute(ctx, deps, serial, 'exo', plan, { serial, schedule, enabled, start, stop, rpm }, confirmToken);
-    },
+    }),
   );
 }

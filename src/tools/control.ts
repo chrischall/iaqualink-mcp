@@ -44,7 +44,8 @@ import {
   type AuxDevice,
 } from '../iaqua.js';
 import { EXO_EQUIPMENT, exoDesired, exoObserved, parseShadow, type ExoWrite } from '../exo.js';
-import { serialArg } from './read.js';
+import { SWITCH_META } from './hints.js';
+import { serialArgFor, withSystem } from './systems.js';
 import type { Deps } from './deps.js';
 
 type Iaqua = Extract<RawStatus, { kind: 'iaqua' }>;
@@ -167,6 +168,7 @@ function unknownAux(serial: string, ref: string, available: string[]): McpToolEr
 
 export function registerControlTools(server: McpServer, deps: Deps): void {
   const { client } = deps;
+  const serialArg = serialArgFor(deps.systems);
   const read = (serial: string, confirmToken: string | undefined) =>
     client.readRawStatus(serial, { fresh: confirmToken !== undefined });
 
@@ -178,6 +180,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         'Turn pool equipment on or off. iAqua (Jandy iAquaLink) systems: pool_pump, spa_pump, pool_heater, spa_heater, solar_heater. eXO salt chlorinators: filter_pump, production (chlorine generation), boost, low (low-output mode), heating. Reads the current state first and sends nothing if it already matches (iAqua commands are toggles); afterwards re-reads to confirm the change landed. ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Switch pool equipment', readOnly: false, destructive: false, idempotent: true, openWorld: true }),
+      _meta: SWITCH_META,
       inputSchema: z.object({
         serial: serialArg,
         equipment: z.enum([...IAQUA_EQUIPMENT, ...EXO_EQUIPMENT]).describe('Which equipment to switch'),
@@ -185,7 +188,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         confirmToken: confirmTokenParam,
       }),
     },
-    async ({ serial, equipment, on, confirmToken }, ctx) => {
+    withSystem(deps, async ({ serial, equipment, on, confirmToken }, ctx) => {
       const raw = await read(serial, confirmToken);
       const meta = {
         tool: 'iaqualink_set_equipment',
@@ -224,7 +227,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         plan = exoPlan(serial, w, raw, meta, on ? 1 : 0, deps);
       }
       return execute(ctx, deps, serial, raw.kind, plan, { serial, equipment, on }, confirmToken);
-    },
+    }),
   );
 
   // ── aux circuits (incl. lights' on/off) ──────────────────────────────────
@@ -235,6 +238,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         'Turn an auxiliary circuit on or off — cleaner, waterfall, bubbler, landscape or pool/spa lights wired to an aux relay. Identify it by number ("3"), name ("aux_3") or label as shown by iaqualink_get_status. On iAqua, dimmable lights turn on at 100% and color lights at their first color, as the iAqualink app does. Sends nothing if already in that state, then re-reads to confirm. ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Switch an aux circuit', readOnly: false, destructive: false, idempotent: true, openWorld: true }),
+      _meta: SWITCH_META,
       inputSchema: z.object({
         serial: serialArg,
         aux: z.string().min(1).max(64).describe('Aux number, aux_<n> name, or label'),
@@ -242,7 +246,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         confirmToken: confirmTokenParam,
       }),
     },
-    async ({ serial, aux, on, confirmToken }, ctx) => {
+    withSystem(deps, async ({ serial, aux, on, confirmToken }, ctx) => {
       const raw = await read(serial, confirmToken);
       const meta = { tool: 'iaqualink_set_aux', action: 'iaqualink.aux.set' };
       let plan: Plan;
@@ -276,7 +280,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         );
       }
       return execute(ctx, deps, serial, raw.kind, plan, { serial, aux, on }, confirmToken);
-    },
+    }),
   );
 
   // ── light brightness / color ─────────────────────────────────────────────
@@ -287,6 +291,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         'Set a pool/spa light’s brightness (dimmable lights: 0, 25, 50, 75 or 100 %) or color/show effect (color lights — Jandy, Pentair, Hayward; the effect names are listed by iaqualink_get_status with view "full"). iAqua systems only. The current color cannot be read back from iAqualink, so an effect change is confirmed only by the light being on. ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Set light brightness or color', readOnly: false, destructive: false, idempotent: true, openWorld: true }),
+      _meta: SWITCH_META,
       inputSchema: z.object({
         serial: serialArg,
         aux: z.string().min(1).max(64).describe('The light’s aux number, aux_<n> name, or label'),
@@ -295,7 +300,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         confirmToken: confirmTokenParam,
       }),
     },
-    async ({ serial, aux, brightness, effect, confirmToken }, ctx) => {
+    withSystem(deps, async ({ serial, aux, brightness, effect, confirmToken }, ctx) => {
       if ((brightness === undefined) === (effect === undefined)) {
         throw new McpToolError('Give exactly one of brightness or effect.');
       }
@@ -355,7 +360,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         };
       }
       return execute(ctx, deps, serial, 'iaqua', plan, { serial, aux, brightness, effect }, confirmToken);
-    },
+    }),
   );
 
   // ── set points ───────────────────────────────────────────────────────────
@@ -366,6 +371,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         'Set the pool and/or spa heater set point (target water temperature), in the system’s own unit (iAqua: °F 34–104 or °C 1–40; eXO: °C within its reported range, pool only). This changes the target only — turning a heater on or off is iaqualink_set_equipment. Re-reads to confirm. ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Set pool/spa temperature', readOnly: false, destructive: false, idempotent: true, openWorld: true }),
+      _meta: SWITCH_META,
       inputSchema: z.object({
         serial: serialArg,
         pool: z.number().int().optional().describe('Pool set point'),
@@ -373,7 +379,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         confirmToken: confirmTokenParam,
       }),
     },
-    async ({ serial, pool, spa, confirmToken }, ctx) => {
+    withSystem(deps, async ({ serial, pool, spa, confirmToken }, ctx) => {
       if (pool === undefined && spa === undefined) throw new McpToolError('Give a pool and/or spa set point.');
       const raw = await read(serial, confirmToken);
       const meta = { tool: 'iaqualink_set_temperature', action: 'iaqualink.temperature.set', target: 'set_points' };
@@ -422,7 +428,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         );
       }
       return execute(ctx, deps, serial, raw.kind, plan, { serial, pool, spa }, confirmToken);
-    },
+    }),
   );
 
   // ── eXO chlorinator output ───────────────────────────────────────────────
@@ -433,13 +439,14 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         'Set an eXO salt chlorinator’s output (chlorine production) percentage, 0–100. eXO systems only. Unlike the other controls this write is NOT in the iaqualink-py reference client — its shape is inferred from the reported `swc` field — so it is confirmed only if a re-read shows the new value. ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Set chlorinator output', readOnly: false, destructive: false, idempotent: true, openWorld: true }),
+      _meta: SWITCH_META,
       inputSchema: z.object({
         serial: serialArg,
         percent: z.number().int().min(0).max(100).describe('Chlorinator output, 0–100 %'),
         confirmToken: confirmTokenParam,
       }),
     },
-    async ({ serial, percent, confirmToken }, ctx) => {
+    withSystem(deps, async ({ serial, percent, confirmToken }, ctx) => {
       const raw = await read(serial, confirmToken);
       if (raw.kind !== 'exo') throw new McpToolError('Chlorinator output is only settable on eXO systems.');
       const plan = exoPlan(
@@ -457,7 +464,7 @@ export function registerControlTools(server: McpServer, deps: Deps): void {
         deps,
       );
       return execute(ctx, deps, serial, 'exo', plan, { serial, percent }, confirmToken);
-    },
+    }),
   );
 }
 

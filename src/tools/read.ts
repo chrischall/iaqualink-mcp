@@ -5,6 +5,8 @@ import { registerCredentialHealthcheckTool } from '@chrischall/mcp-utils/healthc
 import { SUPPORTED_TYPES, type RawStatus } from '../client.js';
 import { normalizeIaqua } from '../iaqua.js';
 import { normalizeExo } from '../exo.js';
+import { LOOKUP_META, SYSTEM_LOOKUP_META } from './hints.js';
+import { serialArgFor, withSystem } from './systems.js';
 import type { Deps } from './deps.js';
 
 const VIEWS: readonly View[] = ['compact', 'full', 'raw'];
@@ -14,13 +16,6 @@ const viewArg = () =>
     note: 'compact = normalized status; full = plus aux/light details and the unprocessed entries; raw = iAqualink’s responses untouched.',
   });
 
-export const serialArg = z
-  .string()
-  .min(1)
-  .max(64)
-  .regex(/^[A-Za-z0-9_-]+$/, 'a system serial (letters, digits, - and _)')
-  .describe('System serial number, from iaqualink_list_systems');
-
 /** Normalize a raw status for a view. Exported for the write tools' previews. */
 export function statusView(raw: RawStatus, view: View): Record<string, unknown> {
   return raw.kind === 'iaqua' ? normalizeIaqua(raw, view) : normalizeExo(raw, view);
@@ -28,6 +23,7 @@ export function statusView(raw: RawStatus, view: View): Record<string, unknown> 
 
 export function registerReadTools(server: McpServer, deps: Deps): void {
   const { client } = deps;
+  const serialArg = serialArgFor(deps.systems);
 
   server.registerTool(
     'iaqualink_list_systems',
@@ -35,6 +31,7 @@ export function registerReadTools(server: McpServer, deps: Deps): void {
       description:
         'List the pool/spa systems (iAqualink / Jandy iAquaLink panels and Zodiac eXO salt chlorinators) on the signed-in iAqualink account, with each serial number needed by the other tools. Other device types (e.g. robotic cleaners) are listed but marked unsupported.',
       annotations: toolAnnotations({ title: 'List iAqualink systems', readOnly: true, openWorld: true }),
+      _meta: LOOKUP_META,
       inputSchema: z.object({ view: viewArg() }),
     },
     async ({ view }) => {
@@ -61,16 +58,17 @@ export function registerReadTools(server: McpServer, deps: Deps): void {
       description:
         'Get the current pool/spa status of one iAqualink system: air, pool and spa temperatures, heater set points, pumps, heaters (pool/spa/solar), freeze protection, aux circuits and lights (with names), and — where the system reports them — salt chlorinator output, boost, salinity, pH and ORP. Readings are cached for a few seconds to stay polite to iAqualink.',
       annotations: toolAnnotations({ title: 'Get pool status', readOnly: true, openWorld: true }),
+      _meta: SYSTEM_LOOKUP_META,
       inputSchema: z.object({ serial: serialArg, view: viewArg() }),
     },
-    async ({ serial, view }) => {
+    withSystem(deps, async ({ serial, view }) => {
       const rung = resolveView(view, VIEWS);
       const raw = await client.readRawStatus(serial);
       if (rung === 'raw') {
         return minifiedResult(raw.kind === 'iaqua' ? { home: raw.home, devices: raw.devices } : { shadow: raw.shadow });
       }
       return minifiedResult(statusView(raw, rung));
-    },
+    }),
   );
 
   registerCredentialHealthcheckTool({

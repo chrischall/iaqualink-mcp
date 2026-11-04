@@ -16,7 +16,8 @@ import { z } from 'zod';
 import { CONFIRM_FLOW_SENTENCE, McpToolError, confirmTokenParam, confirmWrite, minifiedResult, toolAnnotations } from '@chrischall/mcp-utils';
 import { readPumpSpeeds, selectPumpSpeed, setPumpSpeedRpm, type PumpSpeed, type PumpSpeeds } from '../rs-panel.js';
 import { withPanel, type WebTouchSession } from '../webtouch.js';
-import { serialArg } from './read.js';
+import { SWITCH_META, SYSTEM_LOOKUP_META } from './hints.js';
+import { serialArgFor, withSystem } from './systems.js';
 import type { Deps } from './deps.js';
 
 /** The usual Jandy variable-speed range. */
@@ -32,6 +33,7 @@ const revisionOf = (p: PumpSpeeds) => JSON.stringify(p.speeds.map(show));
 
 export function registerPumpTools(server: McpServer, deps: Deps): void {
   const { client } = deps;
+  const serialArg = serialArgFor(deps.systems);
   const panel = <T>(serial: string, fn: (s: WebTouchSession) => Promise<T>) => withPanel(client, serial, deps.timing.webtouch, fn);
 
   async function speeds(serial: string): Promise<PumpSpeeds> {
@@ -56,12 +58,13 @@ export function registerPumpTools(server: McpServer, deps: Deps): void {
       description:
         'List a Jandy AquaLink RS panel’s variable-speed pump speeds — the named speeds (e.g. Pool, Spa, Cleaner) with each one’s RPM and which one the pump runs at — read through iAqualink WebTouch from the panel’s "VSP Adjust / Set Speed" screen. Use iaqualink_set_pump_speed to switch speeds and iaqualink_set_pump_speed_rpm to change a speed’s RPM.',
       annotations: toolAnnotations({ title: 'List pump speeds', readOnly: true, openWorld: true }),
+      _meta: SYSTEM_LOOKUP_META,
       inputSchema: z.object({ serial: serialArg }),
     },
-    async ({ serial }) => {
+    withSystem(deps, async ({ serial }) => {
       const p = await speeds(serial);
       return minifiedResult({ serial, source: 'webtouch', pump: p.pump, active: activeOf(p), speeds: p.speeds.map(show) });
-    },
+    }),
   );
 
   server.registerTool(
@@ -71,9 +74,10 @@ export function registerPumpTools(server: McpServer, deps: Deps): void {
         'Run a Jandy AquaLink RS panel’s variable-speed pump at one of its named speeds (from iaqualink_list_pump_speeds), through WebTouch — the panel makes a pressed speed the running speed at once. Nothing is pressed if that speed already runs; the speeds are re-read afterwards to confirm. Switch back the same way. ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Switch the pump speed', readOnly: false, destructive: false, idempotent: true, openWorld: true }),
+      _meta: SWITCH_META,
       inputSchema: z.object({ serial: serialArg, speed: speedArg, confirmToken: confirmTokenParam }),
     },
-    async ({ serial, speed, confirmToken }, ctx) => {
+    withSystem(deps, async ({ serial, speed, confirmToken }, ctx) => {
       const before = await speeds(serial);
       const target = find(before, serial, speed);
       const current = before.speeds.find((s) => s.active);
@@ -100,7 +104,7 @@ export function registerPumpTools(server: McpServer, deps: Deps): void {
         active,
         speeds: after.speeds.map(show),
       });
-    },
+    }),
   );
 
   server.registerTool(
@@ -110,6 +114,7 @@ export function registerPumpTools(server: McpServer, deps: Deps): void {
         `Change the RPM of one of a Jandy AquaLink RS panel’s named pump speeds (${RPM_MIN}–${RPM_MAX}), through WebTouch. The panel stores a typed RPM for the running speed, so a speed that is not running is run for a few seconds while it is set, and the speed that was running is switched back afterwards; the speeds are re-read to confirm. ` +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Set a pump speed’s RPM', readOnly: false, destructive: false, idempotent: true, openWorld: true }),
+      _meta: SWITCH_META,
       inputSchema: z.object({
         serial: serialArg,
         speed: speedArg,
@@ -117,7 +122,7 @@ export function registerPumpTools(server: McpServer, deps: Deps): void {
         confirmToken: confirmTokenParam,
       }),
     },
-    async ({ serial, speed, rpm, confirmToken }, ctx) => {
+    withSystem(deps, async ({ serial, speed, rpm, confirmToken }, ctx) => {
       const before = await speeds(serial);
       const target = find(before, serial, speed);
       const running = before.speeds.find((s) => s.active);
@@ -149,6 +154,6 @@ export function registerPumpTools(server: McpServer, deps: Deps): void {
       const now = after.speeds.find((s) => s.index === target.index)!;
       const ok = now.rpm === rpm && activeOf(after) === (running?.label ?? activeOf(after));
       return minifiedResult({ status: ok ? 'confirmed' : 'sent-unconfirmed', ...base, rpm: now.rpm, active: activeOf(after), speeds: after.speeds.map(show) });
-    },
+    }),
   );
 }

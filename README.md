@@ -50,6 +50,16 @@ own discretion.
 | `iaqualink_list_onetouch` | RS panel OneTouch scenes (Spa Mode, All OFF, …) and their state, via WebTouch | read |
 | `iaqualink_set_onetouch` | Turn a OneTouch scene on/off via WebTouch — **toggle not exercised live yet** | write, not destructive |
 
+**Systems by name.** At start the server lists the account's systems once;
+when that works, every `serial` argument advertises the supported systems'
+names (e.g. "Pool", "Spa") as an enum, and every tool accepts a name or a
+serial — an unknown name is refused with the list of known systems. If the
+listing fails (no sign-in yet, iAqualink down, past 5 s), the argument is a
+plain serial and nothing else changes. Every tool also carries `_meta.mint`
+hints (domain `home`; `lookup` for reads, `turn-on-off` for the `set_*`
+switches, `change` for schedule edits) that mcp-host's context groups read and
+other clients ignore.
+
 Every write has an inverse in this set and reaches no other person — except
 deleting a panel program, which the panel stores immediately with no undo, so
 that one is marked destructive.
@@ -89,6 +99,7 @@ npm i -g @chrischall/iaqualink-mcp
 | `IAQUALINK_PASSWORD` | for every tool | Your iAqualink password (not trimmed) |
 | `IAQUALINK_STATUS_CACHE_SECONDS` | no | Seconds a status read is reused (default 5; 0 disables) |
 | `IAQUALINK_WEBTOUCH_STREAM_HOSTS` | no | Extra hosts (comma-separated) the WebTouch display stream may come from; default only `prm.iaqualink.net` |
+| `IAQUALINK_VERIFY_TIMEOUT_MS` | no | Milliseconds a write re-reads to confirm the change before reporting `sent-unconfirmed`, for iAqua and eXO alike (positive integer; default 15000 iAqua, 30000 eXO) |
 | `MCP_CONFIRM_MODE` | no | `ask-user` (default) / `auto` / `refuse` |
 | `MCP_CONFIRM_TTL_SECONDS` | no | confirmToken lifetime (default 600) |
 | `MCP_CONFIRM_ELICITATION` | no | `off` skips the prompt even on clients that declare elicitation |
