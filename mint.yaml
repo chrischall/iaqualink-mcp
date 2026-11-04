@@ -59,6 +59,13 @@ env:
       from. The server refuses any stream URL outside webtouch.iaqualink.net,
       prm.iaqualink.net plus
       this list; a host added here must also be added to egress below.
+  - name: IAQUALINK_VERIFY_TIMEOUT_MS
+    required: false
+    help: >-
+      Milliseconds a write keeps re-reading to confirm the change landed before
+      it reports sent-unconfirmed, for iAqua and eXO alike (a positive integer;
+      default 15000 iAqua, 30000 eXO). Set it below a caller's own per-call
+      budget so a write answers inside it.
   - name: MCP_CONFIRM_MODE
     required: false
     help: >-

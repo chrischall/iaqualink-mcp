@@ -43,6 +43,13 @@
           "isRequired": false,
           "format": "string",
           "isSecret": false
+        },
+        {
+          "name": "IAQUALINK_VERIFY_TIMEOUT_MS",
+          "description": "Milliseconds a write keeps re-reading to confirm the change landed before it reports sent-unconfirmed, for both iAqua and eXO systems (a positive integer; default 15000 for iAqua, 30000 for eXO)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
         }
       ]
     }

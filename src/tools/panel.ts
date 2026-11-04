@@ -30,7 +30,8 @@ import {
 } from '../rs-panel.js';
 import { HHMM_PATTERN } from '../schedules.js';
 import { withPanel, type WebTouchSession } from '../webtouch.js';
-import { serialArg } from './read.js';
+import { CHANGE_META } from './hints.js';
+import { serialArgFor, withSystem } from './systems.js';
 import type { Deps } from './deps.js';
 
 const hhmm = z.string().regex(HHMM_PATTERN, '24-hour HH:MM');
@@ -54,6 +55,7 @@ const UNVERIFIED_NOTE =
 
 export function registerPanelTools(server: McpServer, deps: Deps): void {
   const { client } = deps;
+  const serialArg = serialArgFor(deps.systems);
   const panel = <T>(serial: string, fn: (s: WebTouchSession) => Promise<T>) => withPanel(client, serial, deps.timing.webtouch, fn);
 
   async function readIaquaList(serial: string): Promise<PanelSchedule[]> {
@@ -140,6 +142,7 @@ export function registerPanelTools(server: McpServer, deps: Deps): void {
         'Add a program to a Jandy AquaLink RS panel’s own schedule (iAqua systems), through iAqualink WebTouch — the panel emulation the iAqualink web app uses. Picks the circuit by its panel label (e.g. "Filter Pump", "Pool Light", "Cleaner"), sets start and stop (24-hour HH:MM; stop may be earlier than start to run overnight) and run days, saves, and re-reads the list to confirm. The preview shows the schedule list before and after. ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Add an RS panel schedule', readOnly: false, destructive: false, idempotent: false, openWorld: true }),
+      _meta: CHANGE_META,
       inputSchema: z.object({
         serial: serialArg,
         circuit: z.string().min(1).max(64).describe('Circuit label as the panel names it'),
@@ -149,7 +152,7 @@ export function registerPanelTools(server: McpServer, deps: Deps): void {
         confirmToken: confirmTokenParam,
       }),
     },
-    async ({ serial, circuit, start, stop, days, confirmToken }, ctx) => {
+    withSystem(deps, async ({ serial, circuit, start, stop, days, confirmToken }, ctx) => {
       if (start === stop) throw new McpToolError('Start and stop are the same time; give a program that runs.');
       const before = await readIaquaList(serial);
       const add = plannedOf(circuit.trim(), start, stop, days);
@@ -167,7 +170,7 @@ export function registerPanelTools(server: McpServer, deps: Deps): void {
         after: [...before, add],
         run: (s) => addSchedule(s, { circuit: circuit.trim(), start, stop, days }, before),
       });
-    },
+    }),
   );
 
   server.registerTool(
@@ -177,6 +180,7 @@ export function registerPanelTools(server: McpServer, deps: Deps): void {
         'Change the start time, stop time and/or run days of one existing program in a Jandy AquaLink RS panel’s schedule (iAqua systems), through WebTouch. Identify the program exactly as iaqualink_list_schedules listed it (page, row, circuit, start, stop, days) — if the panel no longer shows that, nothing is pressed. The circuit itself cannot be changed (delete and add instead). The preview shows the list before and after; the result re-reads it. ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Edit an RS panel schedule', readOnly: false, destructive: false, idempotent: true, openWorld: true }),
+      _meta: CHANGE_META,
       inputSchema: z.object({
         serial: serialArg,
         ...identity,
@@ -186,7 +190,7 @@ export function registerPanelTools(server: McpServer, deps: Deps): void {
         confirmToken: confirmTokenParam,
       }),
     },
-    async ({ serial, page, row, circuit, start, stop, days, newStart, newStop, newDays, confirmToken }, ctx) => {
+    withSystem(deps, async ({ serial, page, row, circuit, start, stop, days, newStart, newStop, newDays, confirmToken }, ctx) => {
       if (newStart === undefined && newStop === undefined && newDays === undefined) {
         throw new McpToolError('Give at least one of newStart, newStop or newDays.');
       }
@@ -219,7 +223,7 @@ export function registerPanelTools(server: McpServer, deps: Deps): void {
             before,
           ),
       });
-    },
+    }),
   );
 
   server.registerTool(
@@ -229,9 +233,10 @@ export function registerPanelTools(server: McpServer, deps: Deps): void {
         'Delete one program from a Jandy AquaLink RS panel’s schedule (iAqua systems), through WebTouch. The panel stores the deletion immediately, with no undo. Identify the program exactly as iaqualink_list_schedules listed it (page, row, circuit, start, stop, days) — if the panel no longer shows that, nothing is pressed. The preview shows the list before and after; the result re-reads it. ' +
         CONFIRM_FLOW_SENTENCE,
       annotations: toolAnnotations({ title: 'Delete an RS panel schedule', readOnly: false, destructive: true, idempotent: false, openWorld: true }),
+      _meta: CHANGE_META,
       inputSchema: z.object({ serial: serialArg, ...identity, confirmToken: confirmTokenParam }),
     },
-    async ({ serial, page, row, circuit, start, stop, days, confirmToken }, ctx) => {
+    withSystem(deps, async ({ serial, page, row, circuit, start, stop, days, confirmToken }, ctx) => {
       const before = await readIaquaList(serial);
       const hit = findTarget(before, { page, row, circuit, start, stop, days });
       return gateAndRun(ctx, serial, {
@@ -245,6 +250,6 @@ export function registerPanelTools(server: McpServer, deps: Deps): void {
         after: before.filter((s) => s !== hit),
         run: (s) => deleteSchedule(s, { page, row }, before),
       });
-    },
+    }),
   );
 }

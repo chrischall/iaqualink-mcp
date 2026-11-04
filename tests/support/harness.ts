@@ -2,11 +2,12 @@ import { createTestHarness, parseToolResult } from '@chrischall/mcp-utils/test';
 import { IaqualinkClient } from '../../src/client.js';
 import { registrars } from '../../src/tools/index.js';
 import type { Deps } from '../../src/tools/deps.js';
+import type { SystemLabel } from '../../src/tools/systems.js';
 import { FakeIaqualink } from './fake-server.js';
 
 const FAST = { timeoutMs: 1_000, intervalMs: 0, initialDelayMs: 0 };
 
-export async function setup(opts: { client?: IaqualinkClient; server?: FakeIaqualink } = {}) {
+export async function setup(opts: { client?: IaqualinkClient; server?: FakeIaqualink; systems?: readonly SystemLabel[] } = {}) {
   const server = opts.server ?? new FakeIaqualink();
   const client =
     opts.client ??
@@ -18,7 +19,7 @@ export async function setup(opts: { client?: IaqualinkClient; server?: FakeIaqua
       statusCacheMs: 0,
       sleep: async () => {},
     });
-  const deps: Deps = { client, timing: { iaqua: FAST, exo: FAST, webtouch: { stepTimeoutMs: 300, quietMs: 3 } } };
+  const deps: Deps = { client, timing: { iaqua: FAST, exo: FAST, webtouch: { stepTimeoutMs: 300, quietMs: 3 } }, systems: opts.systems };
   const h = await createTestHarness((s) => {
     for (const r of registrars) r(s, deps);
   });

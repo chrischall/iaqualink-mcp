@@ -36,7 +36,8 @@
         "IAQUALINK_EMAIL": "${user_config.iaqualink_email}",
         "IAQUALINK_PASSWORD": "${user_config.iaqualink_password}",
         "IAQUALINK_STATUS_CACHE_SECONDS": "${user_config.iaqualink_status_cache_seconds}",
-        "IAQUALINK_WEBTOUCH_STREAM_HOSTS": "${user_config.iaqualink_webtouch_stream_hosts}"
+        "IAQUALINK_WEBTOUCH_STREAM_HOSTS": "${user_config.iaqualink_webtouch_stream_hosts}",
+        "IAQUALINK_VERIFY_TIMEOUT_MS": "${user_config.iaqualink_verify_timeout_ms}"
       }
     }
   },
@@ -64,6 +65,12 @@
       "type": "string",
       "title": "Extra WebTouch stream hosts",
       "description": "Extra hosts (comma-separated) the WebTouch display stream may be served from, beyond webtouch.iaqualink.net and prm.iaqualink.net. Leave unset unless a WebTouch error names a new host",
+      "required": false
+    },
+    "iaqualink_verify_timeout_ms": {
+      "type": "string",
+      "title": "Write verification timeout (ms)",
+      "description": "Milliseconds a write keeps re-reading to confirm the change landed before it reports sent-unconfirmed, for both iAqua and eXO systems (a positive integer; default 15000 for iAqua, 30000 for eXO)",
       "required": false
     }
   },
