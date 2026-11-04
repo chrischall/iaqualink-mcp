@@ -10,9 +10,13 @@
  * the property with no `enum` (never an empty one, which is invalid JSON
  * Schema).
  *
- * The enum is advice, not validation: a caller may still send the serial, and
- * every handler resolves what it was given through `resolveSerial` — the
- * label-or-id precedent of `iaqualink_set_aux`.
+ * The enum holds the NAMES only, each system once. The serials are not added
+ * to it: a host that fans a question out over the enum's values would then
+ * read every system twice, once by name and once by serial. So the schema
+ * contract is the names, and that is what the description says. The server
+ * stays lenient underneath: every handler resolves what it was given through
+ * `resolveSerial` — the label-or-id precedent of `iaqualink_set_aux` — so a
+ * caller that does not validate against the schema may still send the serial.
  */
 import { z } from 'zod';
 import { McpToolError } from '@chrischall/mcp-utils';
@@ -73,7 +77,10 @@ export function serialArgFor(systems: readonly SystemLabel[] | undefined) {
     .string()
     .min(1)
     .max(64)
-    .describe('The system: its name as listed here, or its serial number from iaqualink_list_systems')
+    .describe(
+      'The system, by name as listed here. The server also resolves a serial from iaqualink_list_systems, ' +
+        'but this schema offers the names only.',
+    )
     .meta({ enum: systems.map((s) => s.label) });
 }
 
