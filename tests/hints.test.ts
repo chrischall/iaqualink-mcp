@@ -70,6 +70,18 @@ describe('system labels on the serial argument', () => {
     for (const t of withSerial) expect(t.inputSchema.properties.serial.enum, t.name).toEqual(['Pool', 'Salt']);
   });
 
+  it('lists each system once, by name — never its serial — so a host fanning out per value reads each system once', async () => {
+    const withSerial = (await served({ systems })).filter((t) => 'serial' in t.inputSchema.properties);
+    for (const t of withSerial) {
+      const property = t.inputSchema.properties.serial;
+      expect(property.enum, t.name).not.toContain('IAQ123');
+      expect(property.enum, t.name).not.toContain('EXO456');
+      expect(property.description, t.name).toBe(
+        'The system, by name as listed here. The server also resolves a serial from iaqualink_list_systems, but this schema offers the names only.',
+      );
+    }
+  });
+
   it('keeps the property, without an enum, when the listing failed', async () => {
     const withSerial = (await served()).filter((t) => 'serial' in t.inputSchema.properties);
     expect(withSerial.length).toBe(17);
