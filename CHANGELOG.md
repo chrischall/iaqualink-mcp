@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/chrischall/iaqualink-mcp/compare/v0.3.0...v0.3.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **schema:** say the serial argument's enum offers the system names only ([#25](https://github.com/chrischall/iaqualink-mcp/issues/25)) ([1de1cff](https://github.com/chrischall/iaqualink-mcp/commit/1de1cff1efa7219cf0b76048200490da04518034))
+
 ## [0.3.0](https://github.com/chrischall/iaqualink-mcp/compare/v0.2.2...v0.3.0) (2026-11-04)
 
 
