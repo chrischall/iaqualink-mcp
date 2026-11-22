@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.2](https://github.com/chrischall/iaqualink-mcp/compare/v0.3.1...v0.3.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* **deps:** bump @chrischall/mcp-utils from 3.4.0 to 3.4.1 in the production-dependencies group ([#28](https://github.com/chrischall/iaqualink-mcp/issues/28)) ([55b854d](https://github.com/chrischall/iaqualink-mcp/commit/55b854d42ce170bec353450bac82767373b8f0fa))
+* **deps:** bump @chrischall/mcp-utils from 3.8.1 to 3.9.0 in the production-dependencies group ([#32](https://github.com/chrischall/iaqualink-mcp/issues/32)) ([a6cd7b0](https://github.com/chrischall/iaqualink-mcp/commit/a6cd7b003cc0c8ec2e821b05a03a4af75f129bef))
+* **deps:** bump the production-dependencies group with 2 updates ([#30](https://github.com/chrischall/iaqualink-mcp/issues/30)) ([ac9e296](https://github.com/chrischall/iaqualink-mcp/commit/ac9e29692718ed8753c29e2399ea7a70db95fdea))
+
 ## [0.3.1](https://github.com/chrischall/iaqualink-mcp/compare/v0.3.0...v0.3.1) (2026-11-04)
 
 
